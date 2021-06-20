@@ -130,6 +130,7 @@ def find_untracked(dryrun):
 def add_to_gitignore(text):
     with open(get_root("/.gitignore"), "a") as file_object:
         file_object.write("\n" + text + "\n")
+    print('Added "' + text + '"' + " to repo's .gitignore file.")
 
 
 def confirm(prompt):
@@ -149,12 +150,14 @@ def handle_untracked_file(file):
     if inp == "a":
         subprocess.run(["git", "add", get_root("/" + file)])
     elif inp == "i":
-        add_to_gitignore(get_root() + "/" + file)
+        add_to_gitignore(get_root("/" + file))
     elif inp == "x":
         name, ext = os.path.splitext(file)
         if len(ext) < 1 or ext[0] != ".":
             print("This file has no extension, try again")
             handle_untracked_file(file)
+        elif len(ext) > 0 and ext[-1] == "~":
+            add_to_gitignore("*~")
         else:
             add_to_gitignore("*" + ext)
     elif inp == "d":
@@ -176,7 +179,7 @@ def local_checkin():
         print("Found untracked files. Specify what to do:")
         for file in untracked:
             handle_untracked_file(file)
-    subprocess.run(["git", "commit"])
+    subprocess.run(["git", "commit", "-a"])
     
 
 def checkin(args, extra_push_args = []):
