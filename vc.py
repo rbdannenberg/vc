@@ -19,7 +19,7 @@ HELP = """vc - version control. A wrapper to avoid git exposure and damage.
 
 COMMAND SUMMARY
 ---------------
-vc ci
+vc push
     Backup whole root directory from root to 
         root/../root-backups/timestamp/
     Check in (git commit -a; git push) the current files to the
@@ -33,10 +33,10 @@ vc ci
          d - delete the file (after confirm)
          p - pass (do not add to repo, do nothing with file)
          ? or h - print this help and prompt again
-vc ci local
-    Just like "vc ci" except this checks in (git commit) 
+vc push local
+    Just like "vc push" except this checks in (git commit) 
         to local repo only.
-vc co
+vc pull
     Check out (git pull) from the master repo.
 vc info
     Get info about the repo.
@@ -170,7 +170,7 @@ def handle_untracked_file(file):
         handle_untracked_file(file)
         
 
-def local_checkin():
+def local_push():
     sp = subprocess.run(["git", "commit", "-a", "--dry-run"],
                         stdout=subprocess.PIPE)
     dryrun = sp.stdout.decode("utf-8")
@@ -182,18 +182,18 @@ def local_checkin():
     subprocess.run(["git", "commit", "-a"])
     
 
-def checkin(args, extra_push_args = []):
+def push(args, extra_push_args = []):
     show_branch()
-    # allow either "vc ci local" or just "vc ci":
+    # allow either "vc push local" or just "vc push":
     if (len(args) == 2 and args[1] == "local") or len(args) == 1:
         make_backup()
-        local_checkin()
+        local_push()
     if len(args) == 1:  # only do this if non-local
         if confirm("push to remote repo"):
             subprocess.run(["git", "push"] + extra_push_args)
     
 
-def checkout(args, extra_pull_args = []):
+def pull(args, extra_pull_args = []):
     show_branch()
     subprocess.run(["git", "pull"] + extra_pull_args)
 
@@ -210,13 +210,13 @@ def newrepo(args):
     subprocess.run(["git", "init"])
     # rename master to main -- less offensive, more compatible with github
     subprocess.run(["git", "checkout", "-b", "main"])
-    local_checkin()
+    local_push()
     url = input("URL for remote repository: ")
     subprocess.run(["git", "remote", "add", "origin", url])
     subprocess.run(["git", "fetch", "--all"])
     subprocess.run(["git", "branch", "--set-upstream-to=origin/main", "main"])
     # in case there are files already, e.g. license or README.md, pull them in
-    checkout([], extra_pull_args=["--allow-unrelated-histories"])
+    pull([], extra_pull_args=["--allow-unrelated-histories"])
     if not os.path.isfile("README.md"):
         if confirm("create README.md"):
             with open("README.md", "w") as readme:
@@ -224,10 +224,10 @@ def newrepo(args):
             subprocess.run(["git", "add", "README.md"])
             subprocess.run(["git", "commit", "-m", "created README.md"])
     # subprocess.run(["git", "branch", "-M", "main"])
-    checkin(["ci"])
+    push(["push"])
 
 
-COMMANDS = ["ci", "co", "info", "new"]
-IMPLEMENTATIONS = [checkin, checkout, showinfo, newrepo]
+COMMANDS = ["push", "pull", "info", "new"]
+IMPLEMENTATIONS = [push, pull, showinfo, newrepo]
 
 main()

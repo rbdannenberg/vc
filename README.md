@@ -2,10 +2,16 @@
 vc - version control. A wrapper to avoid git exposure and damage.
 I never want to use git again.
 
+## INSTALL
+Assuming you clone the repo to ~/vc and your shell install aliases on startup:
+
+    alias vc='python3 ~/vc/vc.py'
+
+
 ## COMMAND SUMMARY
 
 <pre>
-vc ci
+vc push
     Backup whole root directory from root to 
         root/../root-backups/timestamp/
     Check in (git commit -a; git push) the current files to the
@@ -19,10 +25,10 @@ vc ci
          d - delete the file (after confirm)
          p - pass (do not add to repo, do nothing with file)
          ? or h - print this help and prompt again
-vc ci local
-    Just like "vc ci" except this checks in (git commit) 
+vc push local
+    Just like "vc push" except this checks in (git commit) 
         to local repo only.
-vc co
+vc pull
     Check out (git pull) from the master repo.
 vc info
     Get info about the repo.
