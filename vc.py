@@ -40,6 +40,9 @@ vc pull
     Check out (git pull) from the master repo.
 vc info
     Get info about the repo.
+vc mv <source> <destination>
+vc mv <source> ... <destination directory>
+    Rename file or move files, change is recorded for future push
 vc new
     Given a local directory and a newly created remote repo, create a local
         repo and populate the remote repo from local files.
@@ -80,12 +83,12 @@ def main():
             loc2 = remote.find("(")
             if loc2 < 0:
                 raise Exception("Could not make sense of remote: " + remote)
-            print(remote[7 : loc2])
+            print("- " + remote[7 : loc2])
         elif errout.find("fatal:") >= 0:
-            print(errout, end="")
+            print("- " + errout, end="")
             return
         else:
-            print(remotes)
+            for line in remotes: print("- " + remotes)
 
     IMPLEMENTATIONS[COMMANDS.index(sys.argv[1])](sys.argv[1:])
 
@@ -94,7 +97,7 @@ def show_branch():
     sp = subprocess.run(["git", "status"],
                         stdout=subprocess.PIPE)
     # first line is main or branch name:
-    print(sp.stdout.decode("utf-8").split('\n', 1)[0])
+    print("- " + sp.stdout.decode("utf-8").split('\n', 1)[0])
 
 
 def make_backup():
@@ -130,7 +133,7 @@ def find_untracked(dryrun):
 def add_to_gitignore(text):
     with open(get_root("/.gitignore"), "a") as file_object:
         file_object.write("\n" + text + "\n")
-    print('Added "' + text + '"' + " to repo's .gitignore file.")
+    print('- added "' + text + '"' + " to repo's .gitignore file.")
 
 
 def confirm(prompt):
@@ -154,7 +157,7 @@ def handle_untracked_file(file):
     elif inp == "x":
         name, ext = os.path.splitext(file)
         if len(ext) < 1 or ext[0] != ".":
-            print("This file has no extension, try again")
+            print("- this file has no extension, try again")
             handle_untracked_file(file)
         elif len(ext) > 0 and ext[-1] == "~":
             add_to_gitignore("*~")
@@ -176,7 +179,7 @@ def local_push():
     dryrun = sp.stdout.decode("utf-8")
     untracked = find_untracked(dryrun)
     if len(untracked) > 0:
-        print("Found untracked files. Specify what to do:")
+        print("- found untracked files. Specify what to do:")
         for file in untracked:
             handle_untracked_file(file)
     subprocess.run(["git", "commit", "-a"])
@@ -203,9 +206,9 @@ def showinfo(args):
 
 
 def newrepo(args):
-    print("You will need a URL like https://github.com/username/reponame")
+    print("- you will need a URL like https://github.com/username/reponame")
     if not confirm("create local repo and initial check in"):
-        print("vc new command exited without any changes.")
+        print("- vc new command exited without any changes.")
         return
     subprocess.run(["git", "init"])
     # rename master to main -- less offensive, more compatible with github
@@ -227,7 +230,16 @@ def newrepo(args):
     push(["push"])
 
 
-COMMANDS = ["push", "pull", "info", "new"]
-IMPLEMENTATIONS = [push, pull, showinfo, newrepo]
+def rename(args):
+    if len(args) >= 3:
+        if len(args) == 3:
+            print("- rename " + args[1] + " to " + args[2])
+        else:
+            print("- move " + args[1:-1] + " to " + args[-1])
+        subprocess.run(["git"] + args)
+
+
+COMMANDS = ["push", "pull", "info", "new", "mv"]
+IMPLEMENTATIONS = [push, pull, showinfo, newrepo, rename]
 
 main()
