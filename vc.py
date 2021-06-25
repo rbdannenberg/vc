@@ -205,7 +205,7 @@ def push(args, extra_push_args = []):
             # print("status stderr:", sp.stderr.decode("utf-8"))
             print("status stdout:", sp.stdout.decode("utf-8"))
             out = sp.stdout.decode("utf-8")
-            if out.find("behind"):
+            if out.find("behind") >= 0:
                 print("- you must pull changes from the remote repo")
                 print("-     before you can push any local changes")
                 if confirm("pull from remote repo now"):
