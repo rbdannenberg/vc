@@ -209,8 +209,7 @@ def push(args, extra_push_args = []):
                 print("- you must pull changes from the remote repo")
                 print("-     before you can push any local changes")
                 if confirm("pull from remote repo now"):
-                    sp = subprocess.run(["git", "pull"],
-                                        stdout=subprocess.PIPE)
+                    sp = subprocess.run(["git", "pull"], stdout=subprocess.PIPE)
                     out = sp.stdout.decode("utf-8")
                     if out.find("Merge conflict"):
                         print("- automatic merge failed, so you must now",
@@ -223,7 +222,8 @@ def push(args, extra_push_args = []):
                 else:
                     print("- local changes are not committed to remote repo")
                     return 
-            sp = subprocess.run(["git", "push"] + extra_push_args)
+            sp = subprocess.run(["git", "push"] + extra_push_args,
+                                stdout=subprocess.PIPE)
             out = sp.stdout.decode("utf-8")            
             if out.find("hint: Updates were rejected because the tip of " +
                         "your current branch is behind") >= 0:
