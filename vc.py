@@ -7,6 +7,7 @@ import sys
 import time
 import os
 import subprocess
+from urllib.parse import urlparse
 
 UNMANAGED_RESPONSES = """    a - add to repo
     i - add file to ignore list
@@ -43,6 +44,11 @@ vc info
 vc new
     Given a local directory and a newly created remote repo, create a local
         repo and populate the remote repo from local files.
+
+vc checkout url directory
+    Create a local working directory (and clone) from a URL and local 
+        directory name.
+
 vc help
     Print this help."""
 
@@ -227,7 +233,22 @@ def newrepo(args):
     push(["push"])
 
 
-COMMANDS = ["push", "pull", "info", "new"]
-IMPLEMENTATIONS = [push, pull, showinfo, newrepo]
+def checkout(args):
+    """args are ['checkout', <repo url>, <local directory>]"""
+    if len(args) < 3:
+        url = urlparse(args[1])
+        path = url[2]
+        dir = os.path.split(path)
+        dir = os.path.splitext(dir)[0]
+        print("- derived '" + dir + "' as local directory")
+    else:
+        dir = args[2]
+    if os.path.isdir(dir):
+        raise Exception("Directory already exists: " + dir)
+    subprocess.run(["git", "clone", args[1], dir])
+
+
+COMMANDS = ["push", "pull", "info", "new", "checkout"]
+IMPLEMENTATIONS = [push, pull, showinfo, newrepo, checkout]
 
 main()
