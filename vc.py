@@ -197,10 +197,11 @@ def push(args, extra_push_args = []):
     if len(args) == 1:  # only do this if non-local
         if confirm("push to remote repo"):
             subprocess.run(["git", "fetch"])
-            sp = subprocess.run(["git", "status", "-sb"])
-            print("status stderr:", sp.stderr.decode("utf-8"))
+            sp = subprocess.run(["git", "status", "-sb"],
+                                stdout=subprocess.PIPE)
+            # print("status stderr:", sp.stderr.decode("utf-8"))
             print("status stdout:", sp.stdout.decode("utf-8"))
-            out = sp.stderr.decode("utf-8")
+            out = sp.stdout.decode("utf-8")
             if out.find("behind"):
                 print("- you must pull changes from the remote repo")
                 print("-     before you can push any local changes")
