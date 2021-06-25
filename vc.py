@@ -20,6 +20,19 @@ HELP = """vc - version control. A wrapper to avoid git exposure and damage.
 
 COMMAND SUMMARY
 ---------------
+vc checkout url directory
+    Create a local working directory (and clone) from a URL and local 
+        directory name.
+vc help
+    Print this help.
+vc info
+    Get info about the repo.
+vc mv <source> <destination>
+vc mv <source> ... <destination directory>
+    Rename file or move files, change is recorded for future push
+vc new
+    Given a local directory and a newly created remote repo, create a local
+        repo and populate the remote repo from local files.
 vc push
     Backup whole root directory from root to 
         root/../root-backups/timestamp/
@@ -39,22 +52,7 @@ vc push local
         to local repo only.
 vc pull
     Check out (git pull) from the master repo.
-vc info
-    Get info about the repo.
-vc mv <source> <destination>
-vc mv <source> ... <destination directory>
-    Rename file or move files, change is recorded for future push
-vc new
-    Given a local directory and a newly created remote repo, create a local
-        repo and populate the remote repo from local files.
-
-vc checkout url directory
-    Create a local working directory (and clone) from a URL and local 
-        directory name.
-
-vc help
-    Print this help."""
-
+"""
 
 repo_root = None
 
@@ -78,7 +76,8 @@ def main():
     if len(sys.argv) < 2 or sys.argv[1] not in COMMANDS:
         show_help()
         return
-    if sys.argv[1] != "new":  # make exception if there's no repo here
+    # if we are supposed to be in a working directory tree, get some info:
+    if sys.argv[1] not in ["checkout", "new"]:
         sp = subprocess.run(["git", "remote", "-v"],
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         remotes = sp.stdout.decode("utf-8").splitlines()
@@ -91,7 +90,8 @@ def main():
                 raise Exception("Could not make sense of remote: " + remote)
             print("- " + remote[7 : loc2])
         elif errout.find("fatal:") >= 0:
-            print("- " + errout, end="")
+            print("- error output from git:", errout, end="")
+            print("- vc: Maybe you are not in a working directory.")
             return
         else:
             for line in remotes: print("- " + remotes)
@@ -202,8 +202,6 @@ def push(args, extra_push_args = []):
             subprocess.run(["git", "fetch"])
             sp = subprocess.run(["git", "status", "-sb"],
                                 stdout=subprocess.PIPE)
-            # print("status stderr:", sp.stderr.decode("utf-8"))
-            print("status stdout:", sp.stdout.decode("utf-8"))
             out = sp.stdout.decode("utf-8")
             if out.find("behind") >= 0:
                 print("- you must pull changes from the remote repo")
@@ -211,6 +209,7 @@ def push(args, extra_push_args = []):
                 if confirm("pull from remote repo now"):
                     sp = subprocess.run(["git", "pull"], stdout=subprocess.PIPE)
                     out = sp.stdout.decode("utf-8")
+                    print("- git output:\n", out, end="")
                     if out.find("Merge conflict"):
                         print("- automatic merge failed, so you must now",
                               "manually merge changes")
@@ -225,6 +224,7 @@ def push(args, extra_push_args = []):
             sp = subprocess.run(["git", "push"] + extra_push_args,
                                 stdout=subprocess.PIPE)
             out = sp.stdout.decode("utf-8")            
+            print("- git output:\n", out, end="")
             if out.find("hint: Updates were rejected because the tip of " +
                         "your current branch is behind") >= 0:
                 # push failed. Give some advice:
@@ -278,6 +278,7 @@ def checkout(args):
         dir = args[2]
     if os.path.isdir(dir):
         raise Exception("Directory already exists: " + dir)
+    print("run", ["git", "clone", args[1], dir])
     subprocess.run(["git", "clone", args[1], dir])
 
 

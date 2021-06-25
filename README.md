@@ -25,6 +25,9 @@ changes to the local repo only, but this avoids sharing changes with
 other developers and loses the safety of saving changes on the server,
 both of which seem to be bad policies encouraged by git.)
 
+You can update the working directory with changes from the remote repo
+with `vc pull` at any time. If there are conflicts, 
+
 At the beginning, either you have non-version-controlled software
 locally that you wish to move to git (use `vc new` to get started),
 or you have a repo and wish to copy sources to a local working
@@ -40,6 +43,19 @@ Assuming you clone the repo to ~/vc and your shell install aliases on startup:
 ## Command Summary
 
 <pre>
+vc checkout url directory
+    Create a local working directory (and clone) from a URL and local 
+        directory name.
+vc help
+    Print this help.
+vc info
+    Get info about the repo.
+vc mv <source> <destination>
+vc mv <source> ... <destination directory>
+    Rename file or move files, change is recorded for future push
+vc new
+    Given a local directory and a newly created remote repo, create a local
+        repo and populate the remote repo from local files.
 vc push
     Backup whole root directory from root to 
         root/../root-backups/timestamp/
@@ -59,11 +75,4 @@ vc push local
         to local repo only.
 vc pull
     Check out (git pull) from the master repo.
-vc info
-    Get info about the repo.
-vc new
-    Given a local directory and a newly created remote repo, create a local
-        repo and populate the remote repo from local files.
-vc help
-    Print this help.
 </pre>
