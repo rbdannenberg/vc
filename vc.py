@@ -198,6 +198,8 @@ def push(args, extra_push_args = []):
         if confirm("push to remote repo"):
             subprocess.run(["git", "fetch"])
             sp = subprocess.run(["git", "status", "-sb"])
+            print("status stderr:", sp.stderr.decode("utf-8"))
+            print("status stdout:", sp.stdout.decode("utf-8"))
             out = sp.stderr.decode("utf-8")
             if out.find("behind"):
                 print("- you must pull changes from the remote repo")
