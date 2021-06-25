@@ -196,7 +196,24 @@ def push(args, extra_push_args = []):
         local_push()
     if len(args) == 1:  # only do this if non-local
         if confirm("push to remote repo"):
-            subprocess.run(["git", "push"] + extra_push_args)
+            subprocess.run(["git", "fetch"])
+            sp = subprocess.run(["git", "status", "-sb"])
+            out = sp.stdout.decode("utf-8")
+            if out.find("behind"):
+                print("- you must pull changes from the remote repo")
+                print("-     before you can push any local changes")
+                if confirm("pull from remote repo now"):
+                    subprocess.run(["git", "pull"])
+                else:
+                    print("- local changes are not committed to remote repo")
+                    return 
+            sp = subprocess.run(["git", "push"] + extra_push_args)
+            out = sp.stdout.decode("utf-8")            
+            if out.find("hint: Updates were rejected because the tip of " +
+                        "your current branch is behind") >= 0:
+                # push failed. Give some advice:
+                print("- 'vc push' did not complete because your local repo")
+                print("-     is not up-to-date.")
     
 
 def pull(args, extra_pull_args = []):
