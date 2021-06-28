@@ -70,6 +70,9 @@ vc push
          d - delete the file (after confirm)
          p - pass (do not add to repo, do nothing with file)
          ? or h - print this help and prompt again
+         1,2,3,... - add nth folder of this path to ignore list;
+             if prompt is xyz/tmp/foo.test, '2' will add /xyz/tmp/
+             to .gitignore.
 vc push local
     Just like "vc push" except this checks in (git commit) 
         to local repo only.

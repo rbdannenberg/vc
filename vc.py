@@ -47,6 +47,9 @@ vc push
          d - delete the file (after confirm)
          p - pass (do not add to repo, do nothing with file)
          ? or h - print this help and prompt again
+         1,2,3,... - add nth folder of this path to ignore list;
+             if prompt is xyz/tmp/foo.test, '2' will add /xyz/tmp/
+             to .gitignore.
 vc push local
     Just like "vc push" except this checks in (git commit) 
         to local repo only.
@@ -155,11 +158,18 @@ def delete_after_confirm(filepath):
 
 
 def handle_untracked_file(file):
-    inp = input("  " + file + ": [aixdph] ")
+    if os.path.isdir(file):
+        # it's a directory. Prompt for disposition of each file in the dir tree:
+        for (dirpath, dirnames, filenames) in os.walk(file):
+            for name in filenames:
+                handle_untracked_file(os.path.join(dirpath, name))
+        return
+
+    inp = input("  " + file + ": [aixdph123...] ")
     if inp == "a":
         subprocess.run(["git", "add", get_root("/" + file)])
     elif inp == "i":
-        add_to_gitignore(get_root("/" + file))
+        add_to_gitignore("/" + file)
     elif inp == "x":
         name, ext = os.path.splitext(file)
         if len(ext) < 1 or ext[0] != ".":
@@ -174,6 +184,26 @@ def handle_untracked_file(file):
             handle_untracked_file(file)
     elif inp == "p":
         pass
+    elif inp.isdigit():
+        folders = []
+        while file != "":
+            head, tail = os.path.split(file)
+            folders.append(tail)
+            file = head
+        folders.reverse()
+        inp = int(inp)
+        # only allow selection of a folder on path:
+        if os.path.isfile(file):
+            folders.pop()  # remove file as an option
+        if len(folders) < inp:
+            print("- there are not", inp, "folders on path, try again")
+            handle_untracked_file(file)
+            return
+        del folders[inp : ]
+        path = folders[0]
+        for folder in folders[1:]:
+            path = os.path.join(path, folder)
+        add_to_gitignore("/" + path + "/")
     else:
         print(UNMANAGED_RESPONSES)
         handle_untracked_file(file)
@@ -210,7 +240,7 @@ def push(args, extra_push_args = []):
                     sp = subprocess.run(["git", "pull"], stdout=subprocess.PIPE)
                     out = sp.stdout.decode("utf-8")
                     print("- git output:\n", out, end="")
-                    if out.find("Merge conflict"):
+                    if out.find("Merge conflict") >= 0:
                         print("- automatic merge failed, so you must now",
                               "manually merge changes")
                         print("-     from the remote repo with your local",
