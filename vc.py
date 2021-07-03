@@ -153,8 +153,8 @@ def confirm(prompt):
 def delete_after_confirm(filepath):
     if confirm("delete " + filepath):
         os.remove(filepath)
-        return true
-    return false
+        return True
+    return False
 
 
 def handle_untracked_file(file):
