@@ -131,11 +131,17 @@ def find_untracked(dryrun):
     loc += 2
     while True:
         loc2 = dryrun.find("\n", loc)
-        if loc2 < 0:
-            raise Exception("Problem parsing untracked files")
         if loc2 == loc:  # found blank line to terminate file list
             return files
-        files.append(dryrun[loc : loc2].strip())
+        elif loc == len(dryrun):  # no blank line, but this is the end
+            return files
+        elif loc2 < 0:
+            print("Warning: unexpected text after untracked files: |" + \
+                  dryrun[loc : ] + "|, len", len(dryrun[loc : ]))
+            return files
+        filename = dryrun[loc : loc2].strip()
+        print("Debug: adding |" + filename + "| to untracked files")
+        files.append(filename)
         loc = loc2 + 1
 
 
