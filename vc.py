@@ -55,6 +55,10 @@ vc push local
         to local repo only.
 vc pull
     Check out (git pull) from the master repo.
+
+vc rm <file>
+    Remove <file> from local repo and from local filesystem. Use push to
+    update the master repo.
 """
 
 repo_root = None
@@ -314,7 +318,6 @@ def checkout(args):
         dir = args[2]
     if os.path.isdir(dir):
         raise Exception("Directory already exists: " + dir)
-    print("run", ["git", "clone", args[1], dir])
     subprocess.run(["git", "clone", args[1], dir])
 
 
@@ -327,7 +330,22 @@ def rename(args):
         subprocess.run(["git"] + args)
 
 
-COMMANDS = ["push", "pull", "info", "new", "mv", "checkout"]
-IMPLEMENTATIONS = [push, pull, showinfo, newrepo, rename, checkout]
+def remove(args):
+    """Implements vc rm <file> command"""
+    if len(args) == 1:
+        filename = input("File to remove: ")
+    elif len(args) == 2:
+        filename = args[1]
+    else:
+        print('- command syntax is "vc rm <file-to-remove>"')
+        return
+    if not os.path.isfile(filename):
+        print('- file ' + filename + ' does not exist')
+        return
+    subprocess.run(["git", "rm", filename])
+
+
+COMMANDS = ["push", "pull", "info", "new", "mv", "checkout", "rm"]
+IMPLEMENTATIONS = [push, pull, showinfo, newrepo, rename, checkout, remove]
 
 main()

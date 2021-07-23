@@ -78,4 +78,7 @@ vc push local
         to local repo only.
 vc pull
     Check out (git pull) from the master repo.
+vc rm <file>
+    Remove <file> from local repo and from local filesystem. Use push to
+    update the master repo.
 </pre>
