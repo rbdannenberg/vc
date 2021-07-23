@@ -6,6 +6,7 @@
 import sys
 import time
 import os
+import shutil
 import subprocess
 from urllib.parse import urlparse
 
@@ -74,7 +75,7 @@ def get_root(suffix):
         sp = subprocess.run(["git", "rev-parse", "--show-toplevel"],
                             stdout=subprocess.PIPE)
         repo_root = sp.stdout.decode("utf-8").strip()
-        if repo_root[0] != "/":
+        if not os.path.isabs(repo_root):
             raise Exception("Could not get root for repo")
     return repo_root + suffix
 
@@ -120,8 +121,7 @@ def make_backup():
             raise Exception("Unexpected file: " + backups)
         os.mkdir(backups)
     backup = backups + "/" + time.strftime("%Y%m%d-%H%M%S")
-    os.mkdir(backup)
-    sp = subprocess.run(["cp", "-Rp", get_root(""), backup])
+    shutil.copytree(get_root(""), backup)
 
 
 def find_untracked(dryrun):

@@ -1,6 +1,6 @@
 # vc
 vc - version control. A wrapper to avoid git exposure and damage.
-I never want to use git again.
+This is the 10-foot pole with which I'm happy to touch git.
 
 ## Introduction
 The interface presented by git is the worst thing I have seen since
