@@ -15,7 +15,10 @@ UNMANAGED_RESPONSES = """    a - add to repo
     x - add file's extension to the ignore list
     d - delete the file (after confirm)
     p - pass (do not add to repo, do nothing with file)
-    ? or h or other - print this help and prompt again"""
+    ? or h or other - print this help and prompt again
+    1,2,3,... - add nth folder of this path to ignore list;
+        if prompt is xyz/tmp/foo.test, '2' will add /xyz/tmp/
+        to .gitignore."""
 
 HELP = """vc - version control. A wrapper to avoid git exposure and damage.
 
@@ -121,7 +124,11 @@ def make_backup():
             raise Exception("Unexpected file: " + backups)
         os.mkdir(backups)
     backup = backups + "/" + time.strftime("%Y%m%d-%H%M%S")
-    shutil.copytree(get_root(""), backup)
+    shutil.copytree(get_root(""), backup,
+                    ignore=shutil.ignore_patterns('.vs', '.git', '*.vcxproj',
+                               'CMakeFiles', 'CMakeScripts', 'Debug', 
+                               'Release', 'build', 'cmake_install.cmake',
+                               'o2.build', 'o2.xcodeproj', 'static.cmake'))
 
 
 def find_untracked(dryrun):

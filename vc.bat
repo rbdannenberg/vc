@@ -9,4 +9,4 @@ rem directory (C:/?/?/?/vc) to the PATH variable.
 rem
 rem Then, to use vc, simply type "vc <args>" in a GUI CMD window.
 rem
-py vc.py %*
+py %~dp0\vc.py %*
