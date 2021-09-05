@@ -24,9 +24,9 @@ HELP = """vc - version control. A wrapper to avoid git exposure and damage.
 
 COMMAND SUMMARY
 ---------------
-vc checkout url directory
+vc checkout url directory [branch]
     Create a local working directory (and clone) from a URL and local 
-        directory name.
+        directory name. Configure branch as the local branch.
 vc help
     Print this help.
 vc info
@@ -87,6 +87,9 @@ def main():
     if len(sys.argv) < 2 or sys.argv[1] not in COMMANDS:
         show_help()
         return
+    # save current directory
+    original_wd = os.getcwd();
+    changed_wd = False
     # if we are supposed to be in a working directory tree, get some info:
     if sys.argv[1] not in ["checkout", "new"]:
         sp = subprocess.run(["git", "remote", "-v"],
@@ -106,8 +109,15 @@ def main():
             return
         else:
             for line in remotes: print("- " + remotes)
-
+        os.chdir(get_root(""))
+        if original_wd != os.getcwd():
+            changed_wd = True
+            print("- running in repo root dir:", os.getcwd())
     IMPLEMENTATIONS[COMMANDS.index(sys.argv[1])](sys.argv[1:])
+    
+    if changed_wd:
+        os.chdir(original_wd)
+        print("- restored working directory to:", os.getcwd())
 
 
 def show_branch():
@@ -197,7 +207,7 @@ def handle_untracked_file(file):
         else:
             add_to_gitignore("*" + ext)
     elif inp == "d":
-        if not delete_after_confirm(get_root("/" + file)):
+        if not delete_after_confirm(file):
             handle_untracked_file(file)
     elif inp == "p":
         pass
@@ -256,7 +266,7 @@ def push(args, extra_push_args = []):
                 if confirm("pull from remote repo now"):
                     sp = subprocess.run(["git", "pull"], stdout=subprocess.PIPE)
                     out = sp.stdout.decode("utf-8")
-                    print("- git output:\n", out, end="")
+                    print("- git output:\n", out, "-----------------")
                     if out.find("Merge conflict") >= 0:
                         print("- automatic merge failed, so you must now",
                               "manually merge changes")
@@ -271,7 +281,7 @@ def push(args, extra_push_args = []):
             sp = subprocess.run(["git", "push"] + extra_push_args,
                                 stdout=subprocess.PIPE)
             out = sp.stdout.decode("utf-8")            
-            print("- git output:\n", out, end="")
+            print("- git output:\n", out, "-----------------")
             if out.find("hint: Updates were rejected because the tip of " +
                         "your current branch is behind") >= 0:
                 # push failed. Give some advice:
@@ -314,7 +324,7 @@ def newrepo(args):
 
 
 def checkout(args):
-    """args are ['checkout', <repo url>, <local directory>]"""
+    """args are ['checkout', <repo url>, <local directory>, <branch>]"""
     if len(args) < 3:
         url = urlparse(args[1])
         path = url[2]
@@ -325,7 +335,10 @@ def checkout(args):
         dir = args[2]
     if os.path.isdir(dir):
         raise Exception("Directory already exists: " + dir)
-    subprocess.run(["git", "clone", args[1], dir])
+    if len(args) == 4:
+        subprocess.run(["git", "clone", "-b", args[3], args[1], dir])
+    else:
+        subprocess.run(["git", "clone", args[1], dir])
 
 
 def rename(args):
