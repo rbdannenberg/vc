@@ -63,6 +63,12 @@ vc pull
 vc rm <file>
     Remove <file> from local repo and from local filesystem. Use push to
     update the master repo.
+
+Note: I don't want to encourage branches, but the basics are:
+git branch new-branch-name -- create a new branch, do not change working branch
+git checkout new-branch-name -- make new-branch-name the working branch
+git checkout master -- return to master as the working branch
+git merge new-branch-name -- merge new-branch-name changes into working branch
 """
 
 repo_root = None
