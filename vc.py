@@ -308,7 +308,11 @@ def newrepo(args):
 
 def checkout(args):
     """args are ['checkout', <repo url>, <local directory>]"""
-    if len(args) < 3:
+    if len(args) < 2:
+        show_help()
+        print('COMMAND ERROR: no URL given after "checkout"')
+        exit()
+    elif len(args) < 3:
         url = urlparse(args[1])
         path = url[2]
         dir = os.path.split(path)
