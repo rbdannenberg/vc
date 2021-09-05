@@ -45,7 +45,7 @@ Assuming you clone the repo to ~/vc and your shell install aliases on startup:
 <pre>
 vc checkout url directory
     Create a local working directory (and clone) from a URL and local 
-        directory name.
+        directory name. Configure branch as the local branch.
 vc help
     Print this help.
 vc info
