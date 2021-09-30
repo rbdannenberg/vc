@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # vc.py -- wrapper for git. I never want to use git again.
 #
 # Roger B. Dannenberg
