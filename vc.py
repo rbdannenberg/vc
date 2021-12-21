@@ -83,7 +83,7 @@ def get_root(suffix):
     global repo_root
     if not repo_root:
         sp = subprocess.run(["git", "rev-parse", "--show-toplevel"],
-                            stdout=subprocess.PIPE)
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         repo_root = sp.stdout.decode("utf-8").strip()
         if not os.path.isabs(repo_root):
             raise Exception("Could not get root for repo")
@@ -128,8 +128,7 @@ def main():
 
 
 def show_branch():
-    sp = subprocess.run(["git", "status"],
-                        stdout=subprocess.PIPE)
+    sp = subprocess.run(["git", "status"], stdout=subprocess.PIPE)
     # first line is main or branch name:
     print("- " + sp.stdout.decode("utf-8").split('\n', 1)[0])
 
@@ -245,7 +244,7 @@ def handle_untracked_file(file):
 
 def local_push():
     sp = subprocess.run(["git", "commit", "-a", "--dry-run"],
-                        stdout=subprocess.PIPE)
+                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     dryrun = sp.stdout.decode("utf-8")
     untracked = find_untracked(dryrun)
     if len(untracked) > 0:
@@ -265,13 +264,14 @@ def push(args, extra_push_args = []):
         if confirm("push to remote repo"):
             subprocess.run(["git", "fetch"])
             sp = subprocess.run(["git", "status", "-sb"],
-                                stdout=subprocess.PIPE)
+                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
             out = sp.stdout.decode("utf-8")
             if out.find("behind") >= 0:
                 print("- you must pull changes from the remote repo")
                 print("-     before you can push any local changes")
                 if confirm("pull from remote repo now"):
-                    sp = subprocess.run(["git", "pull"], stdout=subprocess.PIPE)
+                    sp = subprocess.run(["git", "pull"],
+                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
                     out = sp.stdout.decode("utf-8")
                     print("- git output:\n", out, "-----------------")
                     if out.find("Merge conflict") >= 0:
@@ -286,7 +286,7 @@ def push(args, extra_push_args = []):
                     print("- local changes are not committed to remote repo")
                     return 
             sp = subprocess.run(["git", "push"] + extra_push_args,
-                                stdout=subprocess.PIPE)
+                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
             out = sp.stdout.decode("utf-8")            
             print("- git output:\n", out, "-----------------")
             if out.find("hint: Updates were rejected because the tip of " +
@@ -298,8 +298,16 @@ def push(args, extra_push_args = []):
 
 def pull(args, extra_pull_args = []):
     show_branch()
-    subprocess.run(["git", "pull"] + extra_pull_args)
-
+    sp = subprocess.run(["git", "pull"] + extra_pull_args,
+                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    out = sp.stdout.decode("utf-8")
+    print("- git output:\n", out, "-----------------")
+    if out.find("signing failed") >= 0:
+        print("- if git tried to use the wrong account or userid for this")
+        print("-   project, edit the remote origini url in .git/config to")
+        print("-   have the form git@github.com-<userid>:<userid>/<repo>.git")
+        print("-   and try again.")
+        
 
 def showinfo(args):
     subprocess.run(["git", "status"])
