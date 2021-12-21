@@ -347,9 +347,17 @@ def checkout(args):
     if os.path.isdir(dir):
         raise Exception("Directory already exists: " + dir)
     if len(args) == 4:
-        subprocess.run(["git", "clone", "-b", args[3], args[1], dir])
+        sp = subprocess.run(["git", "clone", "-b", args[3], args[1], dir],
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     else:
-        subprocess.run(["git", "clone", args[1], dir])
+        sp = subprocess.run(["git", "clone", args[1], dir],
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    out = sp.stdout.decode("utf-8")
+    print(out)
+    out = sp.stderr.decode("utf-8")
+    print(out)
+    if out.find("Could not resolve hostname") >= 0:
+        print("- Check status of Internet access")
 
 
 def rename(args):
