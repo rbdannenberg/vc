@@ -148,14 +148,15 @@ def make_backup():
 
 
 def find_untracked(dryrun):
+    print("find_untracked in:\n", dryrun)
     files = []
     loc = dryrun.find("Untracked files:")
     if loc < 0:
         return files
-    loc = dryrun.find("\n\n", loc)
+    loc = dryrun.find("\n", loc)
     if loc < 0:
-        raise Exception("Untracked files heading found, but no files found")
-    loc += 2
+        raise Exception("Untracked files heading, but no end-of-line")
+    loc += 1
     while True:
         loc2 = dryrun.find("\n", loc)
         if loc2 == loc:  # found blank line to terminate file list
@@ -167,8 +168,15 @@ def find_untracked(dryrun):
                   dryrun[loc : ] + "|, len", len(dryrun[loc : ]))
             return files
         filename = dryrun[loc : loc2].strip()
-        print("Debug: adding |" + filename + "| to untracked files")
-        files.append(filename)
+        if len(filename) <= 0:  # found line with only whitespace
+            return files
+        elif filename[0] == "(":  # assume parenthetical comment
+            pass
+        elif filename.find("to include in what will be committed") > 0:
+            pass  # specific check for a known comment
+        else:
+            print("Debug: adding |" + filename + "| to untracked files")
+            files.append(filename)
         loc = loc2 + 1
 
 
@@ -243,10 +251,11 @@ def handle_untracked_file(file):
         
 
 def local_push():
-    sp = subprocess.run(["git", "commit", "-a", "--dry-run"],
-                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    sp = subprocess.run(["git", "commit", "-a", "--dry-run", "-m", "dry run"],
+                        stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     dryrun = sp.stdout.decode("utf-8")
-    untracked = find_untracked(dryrun)
+    dryrunerr = sp.stderr.decode("utf-8")
+    untracked = find_untracked(dryrun + dryrunerr)
     if len(untracked) > 0:
         print("- found untracked files. Specify what to do:")
         for file in untracked:
