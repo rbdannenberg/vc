@@ -83,7 +83,7 @@ def get_root(suffix):
     global repo_root
     if not repo_root:
         sp = subprocess.run(["git", "rev-parse", "--show-toplevel"],
-                            stdout=subprocess.PIPE)
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         repo_root = sp.stdout.decode("utf-8").strip()
         if not os.path.isabs(repo_root):
             raise Exception("Could not get root for repo")
@@ -128,8 +128,7 @@ def main():
 
 
 def show_branch():
-    sp = subprocess.run(["git", "status"],
-                        stdout=subprocess.PIPE)
+    sp = subprocess.run(["git", "status"], stdout=subprocess.PIPE)
     # first line is main or branch name:
     print("- " + sp.stdout.decode("utf-8").split('\n', 1)[0])
 
@@ -149,14 +148,15 @@ def make_backup():
 
 
 def find_untracked(dryrun):
+    print("find_untracked in:\n", dryrun)
     files = []
     loc = dryrun.find("Untracked files:")
     if loc < 0:
         return files
-    loc = dryrun.find("\n\n", loc)
+    loc = dryrun.find("\n", loc)
     if loc < 0:
-        raise Exception("Untracked files heading found, but no files found")
-    loc += 2
+        raise Exception("Untracked files heading, but no end-of-line")
+    loc += 1
     while True:
         loc2 = dryrun.find("\n", loc)
         if loc2 == loc:  # found blank line to terminate file list
@@ -168,8 +168,15 @@ def find_untracked(dryrun):
                   dryrun[loc : ] + "|, len", len(dryrun[loc : ]))
             return files
         filename = dryrun[loc : loc2].strip()
-        print("Debug: adding |" + filename + "| to untracked files")
-        files.append(filename)
+        if len(filename) <= 0:  # found line with only whitespace
+            return files
+        elif filename[0] == "(":  # assume parenthetical comment
+            pass
+        elif filename.find("to include in what will be committed") > 0:
+            pass  # specific check for a known comment
+        else:
+            print("Debug: adding |" + filename + "| to untracked files")
+            files.append(filename)
         loc = loc2 + 1
 
 
@@ -244,10 +251,11 @@ def handle_untracked_file(file):
         
 
 def local_push():
-    sp = subprocess.run(["git", "commit", "-a", "--dry-run"],
-                        stdout=subprocess.PIPE)
+    sp = subprocess.run(["git", "commit", "-a", "--dry-run", "-m", "dry run"],
+                        stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     dryrun = sp.stdout.decode("utf-8")
-    untracked = find_untracked(dryrun)
+    dryrunerr = sp.stderr.decode("utf-8")
+    untracked = find_untracked(dryrun + dryrunerr)
     if len(untracked) > 0:
         print("- found untracked files. Specify what to do:")
         for file in untracked:
@@ -265,13 +273,14 @@ def push(args, extra_push_args = []):
         if confirm("push to remote repo"):
             subprocess.run(["git", "fetch"])
             sp = subprocess.run(["git", "status", "-sb"],
-                                stdout=subprocess.PIPE)
+                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
             out = sp.stdout.decode("utf-8")
             if out.find("behind") >= 0:
                 print("- you must pull changes from the remote repo")
                 print("-     before you can push any local changes")
                 if confirm("pull from remote repo now"):
-                    sp = subprocess.run(["git", "pull"], stdout=subprocess.PIPE)
+                    sp = subprocess.run(["git", "pull"],
+                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
                     out = sp.stdout.decode("utf-8")
                     print("- git output:\n", out, "-----------------")
                     if out.find("Merge conflict") >= 0:
@@ -286,7 +295,7 @@ def push(args, extra_push_args = []):
                     print("- local changes are not committed to remote repo")
                     return 
             sp = subprocess.run(["git", "push"] + extra_push_args,
-                                stdout=subprocess.PIPE)
+                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
             out = sp.stdout.decode("utf-8")            
             print("- git output:\n", out, "-----------------")
             if out.find("hint: Updates were rejected because the tip of " +
@@ -298,8 +307,16 @@ def push(args, extra_push_args = []):
 
 def pull(args, extra_pull_args = []):
     show_branch()
-    subprocess.run(["git", "pull"] + extra_pull_args)
-
+    sp = subprocess.run(["git", "pull"] + extra_pull_args,
+                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    out = sp.stdout.decode("utf-8")
+    print("- git output:\n", out, "-----------------")
+    if out.find("signing failed") >= 0:
+        print("- if git tried to use the wrong account or userid for this")
+        print("-   project, edit the remote origini url in .git/config to")
+        print("-   have the form git@github.com-<userid>:<userid>/<repo>.git")
+        print("-   and try again.")
+        
 
 def showinfo(args):
     subprocess.run(["git", "status"])
@@ -352,9 +369,17 @@ def checkout(args):
     if os.path.isdir(dir):
         raise Exception("Directory already exists: " + dir)
     if len(args) == 4:
-        subprocess.run(["git", "clone", "-b", args[3], args[1], dir])
+        sp = subprocess.run(["git", "clone", "-b", args[3], args[1], dir],
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     else:
-        subprocess.run(["git", "clone", args[1], dir])
+        sp = subprocess.run(["git", "clone", args[1], dir],
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    out = sp.stdout.decode("utf-8")
+    print(out)
+    out = sp.stderr.decode("utf-8")
+    print(out)
+    if out.find("Could not resolve hostname") >= 0:
+        print("- Check status of Internet access")
 
 
 def rename(args):
