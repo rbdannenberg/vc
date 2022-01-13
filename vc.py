@@ -16,6 +16,8 @@ UNMANAGED_RESPONSES = """    a - add to repo
     x - add file's extension to the ignore list
     d - delete the file (after confirm)
     p - pass (do not add to repo, do nothing with file)
+    p n - pass on this and everything in the nth folder
+        of this path (similar to 1, 2, 3 described below)
     ? or h or other - print this help and prompt again
     1,2,3,... - add nth folder of this path to ignore list;
         if prompt is xyz/tmp/foo.test, '2' will add /xyz/tmp/
@@ -198,14 +200,22 @@ def delete_after_confirm(filepath):
     return False
 
 
+pass_on_this_path = None
+
 def handle_untracked_file(file):
+    global pass_on_this_path
     if os.path.isdir(file):
         # it's a directory. Prompt for disposition of each file in the dir tree:
         for (dirpath, dirnames, filenames) in os.walk(file):
             for name in filenames:
                 handle_untracked_file(os.path.join(dirpath, name))
         return
-
+    if pass_on_this_path != None:
+        if file.find(pass_on_this_path) == 0:
+            print("pass on", file)
+            return  # do nothing with this file
+        else:  # we are past this folder, clear the prefix to be safe
+            pass_on_this_path = None
     inp = input("  " + file + ": [aixdph123...] ")
     if inp == "a":
         subprocess.run(["git", "add", get_root("/" + file)])
@@ -223,8 +233,33 @@ def handle_untracked_file(file):
     elif inp == "d":
         if not delete_after_confirm(file):
             handle_untracked_file(file)
-    elif inp == "p":
-        pass
+    elif inp.find("p") == 0:
+        if len(inp) == 1:  # just "p": pass on this file
+            return
+        inp = inp[1:].strip()  # remove "p and spaces
+        if len(inp) == 0:  # just "p" and spaces: pass on this file
+            return
+        if not inp[0].isdigit():  # "p" and garbage, accept as "p"
+            return
+        inp = int(inp)
+        folders = []
+        while file != "":
+            head, tail = os.path.split(file)
+            folders.append(tail)
+            file = head
+        folders.reverse()
+        # only allow selection of a folder on path
+        if os.path.isfile(file):
+            folders.pop()  # remove file as an option
+        if len(folders) < inp:
+            print("- there are not", inp, "folders on path, try again")
+            handle_untracked_file(file)
+            return
+        del folders[inp : ]
+        pass_on_this_path = folders[0]
+        for folder in folders[1:]:
+            pass_on_this_path = os.path.join(pass_on_this_path, folder)
+        return
     elif inp.isdigit():
         folders = []
         while file != "":
