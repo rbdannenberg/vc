@@ -357,8 +357,13 @@ def showinfo(args):
     subprocess.run(["git", "status"])
 
 
+# git@github.com-rbdannenberg:rbdannenberg/pm_csharp.git
+# git@github.com-rbdannenberg:PortMidi/pm_csharp.git
+# git push --set-upstream origin main
+
 def newrepo(args):
-    print("- you will need a URL like https://github.com/username/reponame")
+    print("- you will need a URL like " +
+          "git@github.com-rbdannenberg:PortMidi/pm_csharp.git")
     if not confirm("create local repo and initial check in"):
         print("- vc new command exited without any changes.")
         return
@@ -373,13 +378,13 @@ def newrepo(args):
     # in case there are files already, e.g. license or README.md, pull them in
     pull([], extra_pull_args=["--allow-unrelated-histories"])
     if not os.path.isfile("README.md"):
-        if confirm("create README.md"):
+        if confirm("create README.md (optional)"):
             with open("README.md", "w") as readme:
-                readme.write("# vc")
+                readme.write("# " + url)
             subprocess.run(["git", "add", "README.md"])
             subprocess.run(["git", "commit", "-m", "created README.md"])
     # subprocess.run(["git", "branch", "-M", "main"])
-    push(["push"])
+    push(["push"], extra_push_args=["--set-upstream", "origin", "main"])
 
 
 def checkout(args):
