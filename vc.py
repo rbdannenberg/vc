@@ -302,9 +302,7 @@ def local_push():
                         stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     dryrun = sp.stdout.decode("utf-8")
     dryrunerr = sp.stderr.decode("utf-8")
-    print("<<<<<<<<" + dryrun + dryrunerr + ">>>>>>>")
     untracked = find_untracked(dryrun + dryrunerr)
-    print("<<<<untracked<<<<", untracked, ">>>untracked>>>>")
     if len(untracked) > 0:
         print("- found untracked files. Specify what to do:")
         for file in untracked:
