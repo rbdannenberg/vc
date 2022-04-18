@@ -16,6 +16,7 @@ UNMANAGED_RESPONSES = """    a - add to repo
     x - add file's extension to the ignore list
     d - delete the file (after confirm)
     p - pass (do not add to repo, do nothing with file)
+    RETURN - if file is a directory, recurse into the directory
     ? or h or other - print this help and prompt again
     1,2,3,... - add nth folder of this path to ignore list;
         if prompt is xyz/tmp/foo.test, '2' will add /xyz/tmp/
@@ -37,7 +38,7 @@ vc mv <source> ... <destination directory>
     Rename file or move files, change is recorded for future push
 vc new
     Given a local directory and a newly created remote repo, create a local
-        repo and populate the remote repo from local files.
+        repo and populate the remote repo from local files in working directory.
 vc push
     Backup whole root directory from root to 
         root/../root-backups/timestamp/
@@ -148,7 +149,6 @@ def make_backup():
 
 
 def find_untracked(dryrun):
-    print("find_untracked in:\n", dryrun)
     files = []
     loc = dryrun.find("Untracked files:")
     if loc < 0:
@@ -159,7 +159,9 @@ def find_untracked(dryrun):
     loc += 1
     while True:
         loc2 = dryrun.find("\n", loc)
-        if loc2 == loc:  # found blank line to terminate file list
+        # terminate file list on blank line, but only after we find at 
+        # least one file:
+        if len(files) > 0 and loc2 == loc:
             return files
         elif loc == len(dryrun):  # no blank line, but this is the end
             return files
@@ -168,8 +170,12 @@ def find_untracked(dryrun):
                   dryrun[loc : ] + "|, len", len(dryrun[loc : ]))
             return files
         filename = dryrun[loc : loc2].strip()
-        if len(filename) <= 0:  # found line with only whitespace
+        # if line has only whitespace, treat it as empty line and return,
+        # but only after we find at least one file
+        if len(files) > 0 and len(filename) <= 0:
             return files
+        elif len(filename) == 0:  # blank line or whitespace
+            pass
         elif filename[0] == "(":  # assume parenthetical comment
             pass
         elif filename.find("to include in what will be committed") > 0:
@@ -199,13 +205,9 @@ def delete_after_confirm(filepath):
 
 
 def handle_untracked_file(file):
+    print("handle_untracked_file", file)
     if os.path.isdir(file):
-        # it's a directory. Prompt for disposition of each file in the dir tree:
-        for (dirpath, dirnames, filenames) in os.walk(file):
-            for name in filenames:
-                handle_untracked_file(os.path.join(dirpath, name))
-        return
-
+        print("it's a directory...")
     inp = input("  " + file + ": [aixdph123...] ")
     if inp == "a":
         subprocess.run(["git", "add", get_root("/" + file)])
@@ -224,7 +226,7 @@ def handle_untracked_file(file):
         if not delete_after_confirm(file):
             handle_untracked_file(file)
     elif inp == "p":
-        pass
+        return  # do not recurse into directories
     elif inp.isdigit():
         folders = []
         while file != "":
@@ -245,6 +247,13 @@ def handle_untracked_file(file):
         for folder in folders[1:]:
             path = os.path.join(path, folder)
         add_to_gitignore("/" + path + "/")
+    elif os.path.isdir(file):
+        print("it's a directory...")
+        # it's a directory. Prompt for disposition of each file in the
+        # dir tree:
+        for (dirpath, dirnames, filenames) in os.walk(file):
+            for name in filenames:
+                handle_untracked_file(os.path.join(dirpath, name))
     else:
         print(UNMANAGED_RESPONSES)
         handle_untracked_file(file)
@@ -255,7 +264,9 @@ def local_push():
                         stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     dryrun = sp.stdout.decode("utf-8")
     dryrunerr = sp.stderr.decode("utf-8")
+    print("<<<<<<<<" + dryrun + dryrunerr + ">>>>>>>")
     untracked = find_untracked(dryrun + dryrunerr)
+    print("<<<<untracked<<<<", untracked, ">>>untracked>>>>")
     if len(untracked) > 0:
         print("- found untracked files. Specify what to do:")
         for file in untracked:
@@ -336,7 +347,8 @@ def newrepo(args):
     # rename master to main -- less offensive, more compatible with github
     subprocess.run(["git", "checkout", "-b", "main"])
     local_push()
-    url = input("URL for remote repository: ")
+    url = input("URL for remote repository (you may need a URL in the\n" +
+                "    form git@github.com-<userid>:<userid>/<repo>.git: ")
     subprocess.run(["git", "remote", "add", "origin", url])
     subprocess.run(["git", "fetch", "--all"])
     subprocess.run(["git", "branch", "--set-upstream-to=origin/main", "main"])
