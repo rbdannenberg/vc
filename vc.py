@@ -410,8 +410,18 @@ def checkout(args):
         url = urlparse(args[1])
         path = url[2]
         dir = os.path.split(path)
-        dir = os.path.splitext(dir)[0]
+        print("- found path components:", dir)
+        # get after "/" and before ".":
+        #     git@github.com:rbdannenberg/soundcool.git -> soundcool
+        dir = dir[-1].split(".")[0]
         print("- derived '" + dir + "' as local directory")
+        if os.path.exists(dir):
+            print("-", dir, "already exists, checkout cancelled")
+            return
+        inp = input("Type Y to proceed: ")
+        if inp != "Y":
+            print("- user cancelled checkout")
+            return
     else:
         dir = args[2]
     if os.path.isdir(dir):
