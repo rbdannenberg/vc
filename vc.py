@@ -355,25 +355,6 @@ def push(args, extra_push_args = []):
                         print("-     spin.atomicobject.com/2020/05/05/" + \
                               "git-configurations-default")
                         return
-                    elif out.find("fatal: Could not read") >= 0:
-                        print('- Did git(hub) say permission "denied to"',
-                              "the wrong account name?")
-                        print("- If git(hub) is using the wrong account,"
-                              "it may be because git")
-                        print("-     has not configured your .git/config"
-                              "file properly. You can")
-                        print("-     specify the account to use for"
-                              "authorization in the url, e.g.")
-                        print('-     in .git/config under [remote ',
-                              '"origin"], instead of')
-                        print("-         url =",
-                             "git@github.com:rbdannenberg/vc.git")
-                        print("-     use")
-                        print("-         url =",
-                              "git@github.com-rbdannenberg:rbdannenberg/vc.git")
-                        print("-     You can make this change manually"
-                              "with any text editor.")
-                        return
                 else:
                     print("- local changes are not committed to remote repo")
                     return 
@@ -386,6 +367,22 @@ def push(args, extra_push_args = []):
                 # push failed. Give some advice:
                 print("- 'vc push' did not complete because your local repo")
                 print("-     is not up-to-date.")
+            elif out.find(" denied to ") >= 0:
+                print("- If git(hub) is using the wrong account,"
+                      "it may be because git")
+                print("-     has not configured your .git/config"
+                      "file properly. You can")
+                print("-     specify the account to use for"
+                      "authorization in the url, e.g.")
+                print('-     in .git/config under [remote ',
+                      '"origin"], instead of')
+                print("-         url =",
+                     "git@github.com:rbdannenberg/vc.git")
+                print("-     use")
+                print("-         url =",
+                      "git@github.com-rbdannenberg:rbdannenberg/vc.git")
+                print("-     You can make this change manually"
+                      "with any text editor.")
     
 
 def pull(args, extra_pull_args = []):
