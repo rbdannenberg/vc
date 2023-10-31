@@ -355,8 +355,9 @@ def push(args, extra_push_args = []):
                         print("-     spin.atomicobject.com/2020/05/05/" + \
                               "git-configurations-default")
                         return
-                    elif out.find("ERROR: Permission to ") >= 0 and \
-                         out.find("denied to") >= 0:
+                    elif out.find("fatal: Could not read") >= 0:
+                        print('- Did git(hub) say permission "denied to"',
+                              "the wrong account name?")
                         print("- If git(hub) is using the wrong account,"
                               "it may be because git")
                         print("-     has not configured your .git/config"
