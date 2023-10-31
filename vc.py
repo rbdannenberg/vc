@@ -323,7 +323,7 @@ def push(args, extra_push_args = []):
                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
             out = sp.stdout.decode("utf-8")
             if out.find("behind") >= 0:
-                print("- you must pull changes from the remote repo")
+                print("- You must pull changes from the remote repo")
                 print("-     before you can push any local changes")
                 if confirm("pull from remote repo now"):
                     sp = subprocess.run(["git", "pull"],
@@ -331,12 +331,29 @@ def push(args, extra_push_args = []):
                     out = sp.stdout.decode("utf-8")
                     print("- git output:\n", out, "-----------------")
                     if out.find("Merge conflict") >= 0:
-                        print("- automatic merge failed, so you must now",
+                        print("- Automatic merge failed, so you must now",
                               "manually merge changes")
                         print("-     from the remote repo with your local",
                               "changes; then run")
                         print("-     'vc push' to finally push your changes",
                               "to the remote repo.")
+                        return
+                    elif out.find("git config pull.rebase false") >= 0:
+                        print("- Automatic merge failed, so you must now",
+                              "manually merge changes")
+                        print("-     from the remote repo with your local",
+                              "changes; then run")
+                        print("-     'vc push' to finally push your changes",
+                              "to the remote repo.")
+                        print("- Consider running the following",
+                              "configuration commands:")
+                        print("-         git config --global pull.rebase true")
+                        print("-         git config --global fetch.prune true")
+                        print("-         git config --global diff.colorMoved",
+                              "zebra")
+                        print("-     based on advice in")
+                        print("-     spin.atomicobject.com/2020/05/05/" + \
+                              "git-configurations-default")
                         return
                 else:
                     print("- local changes are not committed to remote repo")
