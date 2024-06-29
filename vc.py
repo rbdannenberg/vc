@@ -64,6 +64,10 @@ vc push local
 vc pull
     Check out (git pull) from the master repo.
 
+vc resolve
+    If there is a merge conflict, you must manually fix the files to resolve
+    conflicts. Then use "vc resolve" to push the changes to the repo.
+
 vc rm <file>
     Remove <file> from local repo and from local filesystem. Use push to
     update the master repo.
@@ -331,12 +335,23 @@ def push(args, extra_push_args = []):
                     out = sp.stdout.decode("utf-8")
                     print("- git output:\n", out, "-----------------")
                     if out.find("Merge conflict") >= 0:
+                        conflict_files = ""
+                        lines = out.splitlines()
+                        with open("files_with_conflicts.txt", "w") as text_file:
+                            for line in lines:
+                                pos = line.find("Merge conflict in ")
+                                if pos >= 0:
+                                    filename = line[pos + 18 : ]
+                                    print(filename, file=text_file)
+                                    conflict_files += filename + "\n"
                         print("- Automatic merge failed, so you must now",
                               "manually merge changes")
                         print("-     from the remote repo with your local",
                               "changes; then run")
-                        print("-     'vc push' to finally push your changes",
+                        print("-     'vc resolve' to finally push your changes",
                               "to the remote repo.")
+                        print("-     files to edit are:")
+                        print(conflict_files)
                         return
                     elif out.find("git config pull.rebase false") >= 0:
                         print("- Automatic merge failed, so you must now",
@@ -396,7 +411,37 @@ def pull(args, extra_pull_args = []):
         print("-   project, edit the remote origini url in .git/config to")
         print("-   have the form git@github.com-<userid>:<userid>/<repo>.git")
         print("-   and try again.")
-        
+
+
+def resolve(args):
+    with open("files_with_conflicts.txt", "r") as text_file:
+        conflict_files = text_file.read()
+
+    if confirm("that the following files with conflicts are\n" + \
+               "resolved and you are ready to push changes to the repo.\n" + \
+               conflict_files):
+        conflict_files = conflict_files.splitlines()
+        command = ["git", "add"] + conflict_files
+        sp = subprocess.run(command, stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT)
+        out = sp.stdout.decode("utf-8")
+        print("- git output;\n", out, "----------------")
+        sp = subprocess.run(["git", "commit", "-a"], stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT)
+        out = sp.stdout.decode("utf-8")
+        print("- git output;\n", out, "----------------")
+        sp = subprocess.run(["git", "rebase", "--continue"], stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT)
+        out = sp.stdout.decode("utf-8")
+        print("- git output;\n", out, "----------------")
+        sp = subprocess.run(["git", "push"], stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT)
+        out = sp.stdout.decode("utf-8")
+        print("- git output;\n", out, "----------------")
+        print("- files with conflicts that you resolved have been pushed " + \
+              "to the repo")
+        os.remove("files_with_conflicts.txt")
+
 
 def showinfo(args):
     subprocess.run(["git", "status"])
@@ -497,7 +542,7 @@ def remove(args):
     subprocess.run(["git", "rm", filename])
 
 
-COMMANDS = ["push", "pull", "info", "new", "mv", "checkout", "rm"]
-IMPLEMENTATIONS = [push, pull, showinfo, newrepo, rename, checkout, remove]
+COMMANDS = ["push", "pull", "info", "new", "mv", "checkout", "rm", "resolve"]
+IMPLEMENTATIONS = [push, pull, showinfo, newrepo, rename, checkout, remove, resolve]
 
 main()
