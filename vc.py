@@ -45,7 +45,7 @@ vc push
     Backup whole root directory from root to 
         root/../root-backups/timestamp/
     Check in (git commit -a; git push) the current files to the
-         master repo.
+         main repo.
     Always checks in files that have changed (as in git commit -a)
     Prompts for what to do with files that are not managed. 
     Responses to prompts are:
@@ -54,6 +54,8 @@ vc push
          x - add file's extension to the ignore list
          d - delete the file (after confirm)
          p - pass (do not add to repo, do nothing with file)
+         p n - pass on everything in directory n, e.g. if prompt is
+             a/b/c.h, '2' will pass on everything in a/b
          ? or h - print this help and prompt again
          1,2,3,... - add nth folder of this path to ignore list;
              if prompt is xyz/tmp/foo.test, '2' will add /xyz/tmp/
@@ -62,7 +64,10 @@ vc push local
     Just like "vc push" except this checks in (git commit) 
         to local repo only.
 vc pull
-    Check out (git pull) from the master repo.
+    Check out (git pull) from the main repo.
+
+vc reset
+    Force local repo to match main repo
 
 vc resolve
     If there is a merge conflict, you must manually fix the files to resolve
@@ -70,12 +75,12 @@ vc resolve
 
 vc rm <file>
     Remove <file> from local repo and from local filesystem. Use push to
-    update the master repo.
+    update the main repo.
 
 Note: I don't want to encourage branches, but the basics are:
 git branch new-branch-name -- create a new branch, do not change working branch
 git checkout new-branch-name -- make new-branch-name the working branch
-git checkout master -- return to master as the working branch
+git checkout main -- return to main as the working branch
 git merge new-branch-name -- merge new-branch-name changes into working branch
 """
 
@@ -89,7 +94,8 @@ def show_help():
 def get_root(suffix):
     global repo_root
     if not repo_root:
-        sp = subprocess.run(["git", "rev-parse", "--show-toplevel"],
+        sp = subprocess.run(["git", "-c", "color.ui=false", "rev-parse", 
+                             "--show-toplevel"],
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         repo_root = sp.stdout.decode("utf-8").strip()
         if not os.path.isabs(repo_root):
@@ -106,7 +112,7 @@ def main():
     changed_wd = False
     # if we are supposed to be in a working directory tree, get some info:
     if sys.argv[1] not in ["checkout", "new"]:
-        sp = subprocess.run(["git", "remote", "-v"],
+        sp = subprocess.run(["git", "-c", "color.ui=false", "remote", "-v"],
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         remotes = sp.stdout.decode("utf-8").splitlines()
         errout = sp.stderr.decode("utf-8")
@@ -135,7 +141,8 @@ def main():
 
 
 def show_branch():
-    sp = subprocess.run(["git", "status"], stdout=subprocess.PIPE)
+    sp = subprocess.run(["git", "-c", "color.ui=false", "status"],
+                        stdout=subprocess.PIPE)
     # first line is main or branch name:
     print("- " + sp.stdout.decode("utf-8").split('\n', 1)[0])
 
@@ -251,12 +258,16 @@ def handle_untracked_file(file):
         if not inp[0].isdigit():  # "p" and garbage, accept as "p"
             return
         inp = int(inp)
+        # p <digit> handling:
+        # create a list representing the path
         folders = []
-        while file != "":
-            head, tail = os.path.split(file)
+        path = file  # make a copy
+        while path != "":
+            head, tail = os.path.split(path)
             folders.append(tail)
-            file = head
+            path = head
         folders.reverse()
+        # now file a/b/c.h becomes [a, b, c.h]
         # only allow selection of a folder on path
         if os.path.isfile(file):
             folders.pop()  # remove file as an option
@@ -264,6 +275,7 @@ def handle_untracked_file(file):
             print("- there are not", inp, "folders on path, try again")
             handle_untracked_file(file)
             return
+        # construct path where number of directories is given by <digit>:
         del folders[inp : ]
         pass_on_this_path = folders[0]
         for folder in folders[1:]:
@@ -302,7 +314,8 @@ def handle_untracked_file(file):
         
 
 def local_push():
-    sp = subprocess.run(["git", "commit", "-a", "--dry-run", "-m", "dry run"],
+    sp = subprocess.run(["git", "-c", "color.ui=false", "commit", "-a", 
+                         "--dry-run", "-m", "dry run"],
                         stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     dryrun = sp.stdout.decode("utf-8")
     dryrunerr = sp.stderr.decode("utf-8")
@@ -323,14 +336,15 @@ def push(args, extra_push_args = []):
     if len(args) == 1:  # only do this if non-local
         if confirm("push to remote repo"):
             subprocess.run(["git", "fetch"])
-            sp = subprocess.run(["git", "status", "-sb"],
+            sp = subprocess.run(
+                         ["git", "-c", "color.ui=false", "status", "-sb"],
                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
             out = sp.stdout.decode("utf-8")
             if out.find("behind") >= 0:
                 print("- You must pull changes from the remote repo")
                 print("-     before you can push any local changes")
                 if confirm("pull from remote repo now"):
-                    sp = subprocess.run(["git", "pull"],
+                    sp = subprocess.run(["git", "-c", "color.ui=false", "pull"],
                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
                     out = sp.stdout.decode("utf-8")
                     print("- git output:\n", out, "-----------------")
@@ -373,8 +387,9 @@ def push(args, extra_push_args = []):
                 else:
                     print("- local changes are not committed to remote repo")
                     return 
-            sp = subprocess.run(["git", "push"] + extra_push_args,
-                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            sp = subprocess.run(
+                     ["git", "-c", "color.ui=false", "push"] + extra_push_args,
+                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
             out = sp.stdout.decode("utf-8")            
             print("- git output:\n", out, "-----------------")
             if out.find("hint: Updates were rejected because the tip of " +
@@ -402,8 +417,9 @@ def push(args, extra_push_args = []):
 
 def pull(args, extra_pull_args = []):
     show_branch()
-    sp = subprocess.run(["git", "pull"] + extra_pull_args,
-                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    sp = subprocess.run(
+                ["git", "-c", "color.ui=false", "pull"] + extra_pull_args,
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     out = sp.stdout.decode("utf-8")
     print("- git output:\n", out, "-----------------")
     if out.find("signing failed") >= 0:
@@ -421,21 +437,22 @@ def resolve(args):
                "resolved and you are ready to push changes to the repo.\n" + \
                conflict_files):
         conflict_files = conflict_files.splitlines()
-        command = ["git", "add"] + conflict_files
+        command = ["git", "-c", "color.ui=false", "add"] + conflict_files
         sp = subprocess.run(command, stdout=subprocess.PIPE,
                             stderr=subprocess.STDOUT)
         out = sp.stdout.decode("utf-8")
         print("- git output;\n", out, "----------------")
-        sp = subprocess.run(["git", "commit", "-a"], stdout=subprocess.PIPE,
-                            stderr=subprocess.STDOUT)
+        sp = subprocess.run(["git", "-c", "color.ui=false", "commit", "-a"],
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         out = sp.stdout.decode("utf-8")
         print("- git output;\n", out, "----------------")
-        sp = subprocess.run(["git", "rebase", "--continue"], stdout=subprocess.PIPE,
-                            stderr=subprocess.STDOUT)
+        sp = subprocess.run(
+                    ["git", "-c", "color.ui=false", "rebase", "--continue"],
+                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         out = sp.stdout.decode("utf-8")
         print("- git output;\n", out, "----------------")
-        sp = subprocess.run(["git", "push"], stdout=subprocess.PIPE,
-                            stderr=subprocess.STDOUT)
+        sp = subprocess.run(["git", "-c", "color.ui=false", "push"],
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         out = sp.stdout.decode("utf-8")
         print("- git output;\n", out, "----------------")
         print("- files with conflicts that you resolved have been pushed " + \
@@ -505,11 +522,13 @@ def checkout(args):
     if os.path.isdir(dir):
         raise Exception("Directory already exists: " + dir)
     if len(args) == 4:
-        sp = subprocess.run(["git", "clone", "-b", args[3], args[1], dir],
+        sp = subprocess.run(["git", "-c", "color.ui=false", "clone", "-b", 
+                             args[3], args[1], dir],
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     else:
-        sp = subprocess.run(["git", "clone", args[1], dir],
-                            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        sp = subprocess.run(
+                    ["git", "-c", "color.ui=false", "clone", args[1], dir],
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     out = sp.stdout.decode("utf-8")
     print(out)
     out = sp.stderr.decode("utf-8")
@@ -542,7 +561,22 @@ def remove(args):
     subprocess.run(["git", "rm", filename])
 
 
-COMMANDS = ["push", "pull", "info", "new", "mv", "checkout", "rm", "resolve"]
-IMPLEMENTATIONS = [push, pull, showinfo, newrepo, rename, checkout, remove, resolve]
+def reset(args):
+    if confirm("that you want to reset your local repo to the main repo\n" +
+               "and DELETE any local versions that may have changed"):
+        # git fetch --all
+        # git reset --hard origin/main
+        print("- git output;")
+        subprocess.run(["git", "fetch", "--all"])
+        subprocess.run(["git", "reset", "--hard", "origin/main"])
+        print("----------------")
+        print("- local repo should now match remote, local files NOT in the")
+        print("  remotely tracked files are unaltered")
+                            
+
+COMMANDS = ["push", "pull", "info", "new", "mv", "checkout", "rm", 
+            "resolve", "reset"]
+IMPLEMENTATIONS = [push, pull, showinfo, newrepo, rename, checkout, remove,
+                   resolve, reset]
 
 main()
