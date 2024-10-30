@@ -147,6 +147,19 @@ def show_branch():
     print("- " + sp.stdout.decode("utf-8").split('\n', 1)[0])
 
 
+def warn_about_hash_files(src):
+    """
+    Copy a directory and its contents, handling files with hash (#) characters.
+    """
+    for root, dirs, files in os.walk(src):
+        for file in files:
+            if '#' in file:
+                print("WARNING: Backup is skipping file with hash character:")
+                print(f"    {os.path.join(root, file)}")
+                print("Recommend to delete it.")
+                delete_after_confirm(os.path.join(root, file))
+
+
 def make_backup():
     backups = get_root("-backups")
     if not os.path.isdir(backups):
@@ -154,9 +167,10 @@ def make_backup():
             raise Exception("Unexpected file: " + backups)
         os.mkdir(backups)
     backup = backups + "/" + time.strftime("%Y%m%d-%H%M%S")
+    warn_about_hash_files(get_root(""))
     shutil.copytree(get_root(""), backup,
                     ignore=shutil.ignore_patterns('.vs', '.git', '*.vcxproj',
-                               'CMakeFiles', 'CMakeScripts', 'Debug', 
+                               'CMakeFiles', 'CMakeScripts', 'Debug', '*#*',
                                'Release', 'build', 'cmake_install.cmake',
                                'o2.build', 'o2.xcodeproj', 'static.cmake'))
 
@@ -288,6 +302,7 @@ def handle_untracked_file(file):
             folders.append(tail)
             file = head
         folders.reverse()
+        # folders is now a list of folder names maybe followed by a file
         inp = int(inp)
         # only allow selection of a folder on path:
         if os.path.isfile(file):
@@ -296,10 +311,12 @@ def handle_untracked_file(file):
             print("- there are not", inp, "folders on path, try again")
             handle_untracked_file(file)
             return
-        del folders[inp : ]
+        del folders[inp : ]  # remove folders beyond specified digit
+        # rebuild the path to be ignored
         path = folders[0]
         for folder in folders[1:]:
             path = os.path.join(path, folder)
+        pass_on_this_path = path + "/"  # we can skip some matching paths
         add_to_gitignore("/" + path + "/")
     elif os.path.isdir(file):
         print("it's a directory...")
@@ -325,7 +342,7 @@ def local_push():
         for file in untracked:
             handle_untracked_file(file)
     subprocess.run(["git", "commit", "-a"])
-    
+
 
 def push(args, extra_push_args = []):
     show_branch()
