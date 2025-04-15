@@ -91,12 +91,31 @@ def show_help():
     print(HELP)
 
 
+def git_run(command, capture=False):
+    """use subprocess to run a command. Print the command first. 
+    If capture is False, use stdout and stderr.
+    If capture is True, use PIPE for stdout and stderr
+    If capture is "only_stdout", use PIPE only for stdout
+    """
+    print("* run: ", end="")
+    for field in command:
+        print(field + " ", end="")
+    print()
+    if capture == "only_stdout":
+        sp = subprocess.run(command,
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    elif capture:
+        sp = subprocess.run(command,
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    else:
+        sp = subprocess.run(command)
+    return sp
+
+
 def get_root(suffix):
     global repo_root
     if not repo_root:
-        sp = subprocess.run(["git", "-c", "color.ui=false", "rev-parse", 
-                             "--show-toplevel"],
-                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        sp = git_run(["git", "rev-parse", "--show-toplevel"], "only_stdout")
         repo_root = sp.stdout.decode("utf-8").strip()
         if not os.path.isabs(repo_root):
             raise Exception("Could not get root for repo")
@@ -112,8 +131,7 @@ def main():
     changed_wd = False
     # if we are supposed to be in a working directory tree, get some info:
     if sys.argv[1] not in ["checkout", "new"]:
-        sp = subprocess.run(["git", "-c", "color.ui=false", "remote", "-v"],
-                            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        sp = git_run(["git", "remote", "-v"], True)
         remotes = sp.stdout.decode("utf-8").splitlines()
         errout = sp.stderr.decode("utf-8")
         if len(remotes) == 2 and remotes[0].find("origin") == 0:
@@ -141,8 +159,8 @@ def main():
 
 
 def show_branch():
-    sp = subprocess.run(["git", "-c", "color.ui=false", "status"],
-                        stdout=subprocess.PIPE)
+    sp = git_run(["git", "-c", "color.ui=false", "status"],
+                 capture="stdout_only")
     # first line is main or branch name:
     print("- " + sp.stdout.decode("utf-8").split('\n', 1)[0])
 
@@ -248,7 +266,7 @@ def handle_untracked_file(file):
 
     inp = input("  " + file + ": [aixdph123...] ")
     if inp == "a":
-        subprocess.run(["git", "add", get_root("/" + file)])
+        git_run(["git", "add", get_root("/" + file)])
     elif inp == "i":
         add_to_gitignore("/" + file)
     elif inp == "x":
@@ -331,9 +349,8 @@ def handle_untracked_file(file):
         
 
 def local_push():
-    sp = subprocess.run(["git", "-c", "color.ui=false", "commit", "-a", 
-                         "--dry-run", "-m", "dry run"],
-                        stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    sp = git_run(["git", "-c", "color.ui=false", "commit", "-a", 
+                  "--dry-run", "-m", "dry run"], capture=True)
     dryrun = sp.stdout.decode("utf-8")
     dryrunerr = sp.stderr.decode("utf-8")
     untracked = find_untracked(dryrun + dryrunerr)
@@ -341,7 +358,7 @@ def local_push():
         print("- found untracked files. Specify what to do:")
         for file in untracked:
             handle_untracked_file(file)
-    subprocess.run(["git", "commit", "-a"])
+    git_run(["git", "commit", "-a"])
 
 
 def push(args, extra_push_args = []):
@@ -352,17 +369,15 @@ def push(args, extra_push_args = []):
         local_push()
     if len(args) == 1:  # only do this if non-local
         if confirm("push to remote repo"):
-            subprocess.run(["git", "fetch"])
-            sp = subprocess.run(
-                         ["git", "-c", "color.ui=false", "status", "-sb"],
-                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            git_run(["git", "fetch"])
+            sp = git_run(["git", "-c", "color.ui=false", "status", "-sb"],
+                         capture="stdout_only")
             out = sp.stdout.decode("utf-8")
             if out.find("behind") >= 0:
                 print("- You must pull changes from the remote repo")
                 print("-     before you can push any local changes")
                 if confirm("pull from remote repo now"):
-                    sp = subprocess.run(["git", "-c", "color.ui=false", "pull"],
-                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+                    sp = git_run(["git", "pull"], "stdout_only")
                     out = sp.stdout.decode("utf-8")
                     print("- git output:\n", out, "-----------------")
                     if out.find("Merge conflict") >= 0:
@@ -404,9 +419,8 @@ def push(args, extra_push_args = []):
                 else:
                     print("- local changes are not committed to remote repo")
                     return 
-            sp = subprocess.run(
-                     ["git", "-c", "color.ui=false", "push"] + extra_push_args,
-                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            sp = git_run(["git", "-c", "color.ui=false", "push"] + \
+                         extra_push_args, capture="stdout_only")
             out = sp.stdout.decode("utf-8")            
             print("- git output:\n", out, "-----------------")
             if out.find("hint: Updates were rejected because the tip of " +
@@ -432,11 +446,10 @@ def push(args, extra_push_args = []):
                       "with any text editor.")
     
 
-def pull(args, extra_pull_args = []):
+def pull(args, extra_args = []):
     show_branch()
-    sp = subprocess.run(
-                ["git", "-c", "color.ui=false", "pull"] + extra_pull_args,
-                stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    sp = git_run(["git", "-c", "color.ui=false", "pull"] + extra_args,
+                 capture="stdout_only")
     out = sp.stdout.decode("utf-8")
     print("- git output:\n", out, "-----------------")
     if out.find("signing failed") >= 0:
@@ -454,22 +467,17 @@ def resolve(args):
                "resolved and you are ready to push changes to the repo.\n" + \
                conflict_files):
         conflict_files = conflict_files.splitlines()
-        command = ["git", "-c", "color.ui=false", "add"] + conflict_files
-        sp = subprocess.run(command, stdout=subprocess.PIPE,
-                            stderr=subprocess.STDOUT)
+        sp = git_run(["git", "-c", "color.ui=false", "add"] + conflict_files,
+                     capture="stdout_only")
         out = sp.stdout.decode("utf-8")
         print("- git output;\n", out, "----------------")
-        sp = subprocess.run(["git", "-c", "color.ui=false", "commit", "-a"],
-                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        sp = git_run(["git", "commit", "-a"], capture="stdout_only")
         out = sp.stdout.decode("utf-8")
         print("- git output;\n", out, "----------------")
-        sp = subprocess.run(
-                    ["git", "-c", "color.ui=false", "rebase", "--continue"],
-                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        sp = git_run(["git", "rebase", "--continue"], capture="stdout_only")
         out = sp.stdout.decode("utf-8")
         print("- git output;\n", out, "----------------")
-        sp = subprocess.run(["git", "-c", "color.ui=false", "push"],
-                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        sp = git_run(["git", "push"], capture="stdout_only")
         out = sp.stdout.decode("utf-8")
         print("- git output;\n", out, "----------------")
         print("- files with conflicts that you resolved have been pushed " + \
@@ -478,7 +486,7 @@ def resolve(args):
 
 
 def showinfo(args):
-    subprocess.run(["git", "status"])
+    git_run(["git", "status"])
 
 
 # git@github.com-rbdannenberg:rbdannenberg/pm_csharp.git
@@ -491,24 +499,24 @@ def newrepo(args):
     if not confirm("create local repo and initial check in"):
         print("- vc new command exited without any changes.")
         return
-    subprocess.run(["git", "init"])
+    git_run(["git", "init"])
     # rename master to main -- less offensive, more compatible with github
-    subprocess.run(["git", "checkout", "-b", "main"])
+    git_run(["git", "checkout", "-b", "main"])
     local_push()
     url = input("URL for remote repository (you may need a URL in the\n" +
                 "    form git@github.com-<userid>:<userid>/<repo>.git: ")
-    subprocess.run(["git", "remote", "add", "origin", url])
-    subprocess.run(["git", "fetch", "--all"])
-    subprocess.run(["git", "branch", "--set-upstream-to=origin/main", "main"])
+    git_run(["git", "remote", "add", "origin", url])
+    git_run(["git", "fetch", "--all"])
+    git_run(["git", "branch", "--set-upstream-to=origin/main", "main"])
     # in case there are files already, e.g. license or README.md, pull them in
-    pull([], extra_pull_args=["--allow-unrelated-histories"])
+    pull([], extra_args=["--allow-unrelated-histories"])
     if not os.path.isfile("README.md"):
         if confirm("create README.md (optional)"):
             with open("README.md", "w") as readme:
                 readme.write("# " + url)
-            subprocess.run(["git", "add", "README.md"])
-            subprocess.run(["git", "commit", "-m", "created README.md"])
-    # subprocess.run(["git", "branch", "-M", "main"])
+            git_run(["git", "add", "README.md"])
+            git_run(["git", "commit", "-m", "created README.md"])
+    # git_run(["git", "branch", "-M", "main"])
     push(["push"], extra_push_args=["--set-upstream", "origin", "main"])
 
 
@@ -539,16 +547,11 @@ def checkout(args):
     if os.path.isdir(dir):
         raise Exception("Directory already exists: " + dir)
     if len(args) == 4:
-        sp = subprocess.run(["git", "-c", "color.ui=false", "clone", "-b", 
-                             args[3], args[1], dir],
-                            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        sp = git_run(["git", "clone", "-b", args[3], args[1], dir],
+                     capture=True)
     else:
-        sp = subprocess.run(
-                    ["git", "-c", "color.ui=false", "clone", args[1], dir],
-                    stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        sp = git_run(["git", "clone", args[1], dir], capture=True)
     out = sp.stdout.decode("utf-8")
-    print(out)
-    out = sp.stderr.decode("utf-8")
     print(out)
     if out.find("Could not resolve hostname") >= 0:
         print("- Check status of Internet access")
@@ -560,7 +563,7 @@ def rename(args):
             print("- rename " + args[1] + " to " + args[2])
         else:
             print("- move " + args[1:-1] + " to " + args[-1])
-        subprocess.run(["git"] + args)
+        git_run(["git"] + args)
 
 
 def remove(args):
@@ -575,7 +578,7 @@ def remove(args):
     if not os.path.isfile(filename):
         print('- file ' + filename + ' does not exist')
         return
-    subprocess.run(["git", "rm", filename])
+    git_run(["git", "rm", filename])
 
 
 def reset(args):
@@ -584,8 +587,8 @@ def reset(args):
         # git fetch --all
         # git reset --hard origin/main
         print("- git output;")
-        subprocess.run(["git", "fetch", "--all"])
-        subprocess.run(["git", "reset", "--hard", "origin/main"])
+        git_run(["git", "fetch", "--all"])
+        git_run(["git", "reset", "--hard", "origin/main"])
         print("----------------")
         print("- local repo should now match remote, local files NOT in the")
         print("  remotely tracked files are unaltered")
