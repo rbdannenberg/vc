@@ -140,14 +140,19 @@ def sp_stderr(sp):
     return sp.stderr.decode("utf-8")
 
 
-def get_root(suffix):
+def get_root(suffix=""):
+    """returns a full path consisting of the root of this local repo
+    joined with the file or subpath in suffix
+    """
     global repo_root
     if not repo_root:
         sp = git_run(["git", "rev-parse", "--show-toplevel"], "stdout_only")
         repo_root = sp_stdout(sp).strip()
         if not os.path.isabs(repo_root):
             raise Exception("Could not get root for repo")
-    return repo_root + suffix
+    if len(suffix) > 0:
+        return os.path.join(repo_root, suffix)
+    return repo_root
 
 
 def main():
@@ -175,7 +180,7 @@ def main():
             return
         else:
             for line in remotes: print("- " + remotes)
-        os.chdir(get_root(""))
+        os.chdir(get_root())
         if original_wd != os.getcwd():
             changed_wd = True
             print("- running in repo root dir:", os.getcwd())
@@ -226,14 +231,16 @@ def warn_about_hash_files(src):
 
 
 def make_backup(branch):
-    backups = get_root("-backups")
+    # remove trailing "/" and change name to <repname>-backups
+    backups = get_root() + "-backups"
     if not os.path.isdir(backups):
         if os.path.isfile(backups):
             raise Exception("Unexpected file: " + backups)
         os.mkdir(backups)
     backup = backups + "/" + time.strftime("%Y%m%d-%H%M%S")
-    warn_about_hash_files(get_root(""))
-    shutil.copytree(get_root(""), backup,
+    warn_about_hash_files(get_root())
+    print("- backup local repo to " + backup)
+    shutil.copytree(get_root(), backup,
                     ignore=shutil.ignore_patterns('.vs', '.git', '*.vcxproj',
                                'CMakeFiles', 'CMakeScripts', 'Debug', '*#*',
                                'Release', 'build', 'cmake_install.cmake',
@@ -283,7 +290,7 @@ def find_untracked(dryrun):
 
 
 def add_to_gitignore(text):
-    with open(get_root("/.gitignore"), "a") as file_object:
+    with open(get_root(".gitignore"), "a") as file_object:
         file_object.write("\n" + text + "\n")
     print('- added "' + text + '"' + " to repo's .gitignore file.")
 
@@ -294,7 +301,7 @@ def confirm(prompt):
 
 
 def get_number(prompt, low, high):
-    inp = input("Type number of " + prompt + " or anything else to ignore:" )
+    inp = input("Type number of " + prompt + " or anything else to ignore: ")
     try:
         i = int(inp)
     except ValueError:
@@ -323,6 +330,8 @@ def delete_after_confirm(filepath):
 pass_on_this_path = None
 
 def handle_untracked_file(file):
+    """file is a full path"""
+    assert file[0] == "/"
     global pass_on_this_path
 
     if os.path.isdir(file):
@@ -340,7 +349,7 @@ def handle_untracked_file(file):
     else:
         inp = input("  " + file + ": [aixdph123...] ")
     if inp == "a":
-        git_run(["git", "add", get_root("/" + file)])
+        git_run(["git", "add", file])
     elif inp == "i":
         add_to_gitignore("/" + file)
     elif inp == "x":
@@ -353,7 +362,7 @@ def handle_untracked_file(file):
         else:
             add_to_gitignore("*" + ext)
     elif inp == "d":
-        file_to_delete = get_root("/" + file)
+        file_to_delete = get_root(file)
         if not delete_after_confirm(file_to_delete):
             handle_untracked_file(file)
     elif inp.find("p") == 0:
@@ -415,7 +424,7 @@ def handle_untracked_file(file):
         print("it's a directory...")
         # it's a directory. Prompt for disposition of each file in the
         # dir tree:
-        for (dirpath, dirnames, filenames) in os.walk(get_root("/" + file)):
+        for (dirpath, dirnames, filenames) in os.walk(get_root(file)):
             for name in filenames:
                 handle_untracked_file(os.path.join(dirpath, name))
     else:
@@ -433,7 +442,7 @@ def local_push():
     if len(untracked) > 0:
         print("- found untracked files. Specify what to do:")
         for file in untracked:
-            handle_untracked_file(file)
+            handle_untracked_file(get_root(file))
     try_again = True
     while try_again:
         sp = git_run(["git", "-c", "color.ui=false", "commit", "-a"],
