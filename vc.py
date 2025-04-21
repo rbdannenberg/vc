@@ -570,6 +570,8 @@ def push(args, extra_push_args = []):
                       "git@github.com-rbdannenberg:rbdannenberg/vc.git")
                 print("-     You can make this change manually",
                       "with any text editor.")
+            else:
+                print("- local files pushed to main branch on remote")
 
 
 def do_a_pull(extra_args = []):
