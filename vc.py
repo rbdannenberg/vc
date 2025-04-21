@@ -225,7 +225,7 @@ def warn_about_hash_files(src):
                 delete_after_confirm(os.path.join(root, file))
 
 
-def make_backup():
+def make_backup(branch):
     backups = get_root("-backups")
     if not os.path.isdir(backups):
         if os.path.isfile(backups):
@@ -238,6 +238,10 @@ def make_backup():
                                'CMakeFiles', 'CMakeScripts', 'Debug', '*#*',
                                'Release', 'build', 'cmake_install.cmake',
                                'o2.build', 'o2.xcodeproj', 'static.cmake'))
+    # save the current branch name into the file named branchname.txt so
+    # later we can read what branch the backup corresponds to
+    with open(backup + "/branchname.txt", "w") as file:
+        file.write(branch + "\n")
 
 
 def find_untracked(dryrun):
@@ -420,6 +424,7 @@ def handle_untracked_file(file):
         
 
 def local_push():
+    """Do a local commit and return True on success"""
     sp = git_run(["git", "-c", "color.ui=false", "commit", "-a", 
                   "--dry-run", "-m", "dry run"], capture=True)
     dryrun = sp_stdout(sp)
@@ -429,8 +434,21 @@ def local_push():
         print("- found untracked files. Specify what to do:")
         for file in untracked:
             handle_untracked_file(file)
-    git_run(["git", "commit", "-a"])
+    try_again = True
+    while try_again:
+        sp = git_run(["git", "-c", "color.ui=false", "commit", "-a"],
+                     capture="stdout_only")
+        out = sp_stdout(sp)
+        print("- git output:\n", out, "-----------------")
+        try_again = False
+        if out.find("Failed") >= 0:  # test for pre-commit hook failure
+            print("- local commit failed, (e.g., maybe a hook changed a file)")
+            try_again = confirm("try again")
+            if not try_again:
+                print("- there was apparently no push to local repo")
+                return False
     print("- finished push to local repo")
+    return True
 
 
 def process_possible_merge_conflict(out):
@@ -466,8 +484,10 @@ def push(args, extra_push_args = []):
     branch = show_branch()
     # allow either "vc push local" or just "vc push":
     if (len(args) == 2 and args[1] == "local") or len(args) == 1:
-        make_backup()
-        local_push()
+        make_backup(branch)
+        if not local_push():
+            print("- exiting the push command, no action taken")
+            return
     on_main_branch = branch in ["main", "master"]
     print("- " + ('' if on_main_branch else 'not') + " on main branch")
     # (main branch could have another name but should be "main"
