@@ -150,8 +150,14 @@ def get_root(suffix=""):
         repo_root = sp_stdout(sp).strip()
         if not os.path.isabs(repo_root):
             raise Exception("Could not get root for repo")
+        if repo_root[-1] == "/" or repo_root[-1] == "\\":
+            repo_root = repo_root[ : -1]
     if len(suffix) > 0:
-        return os.path.join(repo_root, suffix)
+        # join repo_root to suffix, take care with separators
+        # repo_root has no trailing separator (see above)
+        if suffix[0] == "/" or suffix[0] == "\\":
+            suffix = suffix[1 : ]
+        return repo_root + "/" + suffix
     return repo_root
 
 
@@ -331,15 +337,17 @@ pass_on_this_path = None
 
 def handle_untracked_file(file):
     """file is a full path"""
-    assert file[0] == "/"
     global pass_on_this_path
+    assert file[0] == "/" or file[1] == ":"  # unix or win32 full path
+
+    relative_path = file[len(get_root()) : ]  # starting with "/"
 
     if os.path.isdir(file):
-        print("it's a directory...")
+        print("Note: this is a directory...")
 
     if pass_on_this_path != None:
-        if file.find(pass_on_this_path) == 0:
-            print("pass on", file)
+        if relative_path.find(pass_on_this_path) == 0:
+            print("pass on", relative_path)
             return  # do nothing with this file
         else:  # we are past this folder, clear the prefix to be safe
             pass_on_this_path = None
@@ -347,13 +355,16 @@ def handle_untracked_file(file):
     if file == "files_with_conflicts.txt":
         inp = "p"  # pass
     else:
-        inp = input("  " + file + ": [aixdph123...] ")
+        inp = input("  " + relative_path + ": [aixdph123...] ")
     if inp == "a":
         git_run(["git", "add", file])
     elif inp == "i":
-        add_to_gitignore("/" + file)
+        add_to_gitignore(relative_path)
     elif inp == "x":
-        name, ext = os.path.splitext(file)
+        file_without_sep = file
+        if relative_path[-1] == "/":
+            file_without_sep = relative_path[ : -1]
+        name, ext = os.path.splitext(file_without_sep)
         if len(ext) < 1 or ext[0] != ".":
             print("- this file has no extension, try again")
             handle_untracked_file(file)
@@ -362,8 +373,7 @@ def handle_untracked_file(file):
         else:
             add_to_gitignore("*" + ext)
     elif inp == "d":
-        file_to_delete = get_root(file)
-        if not delete_after_confirm(file_to_delete):
+        if not delete_after_confirm(file):
             handle_untracked_file(file)
     elif inp.find("p") == 0:
         if len(inp) == 1:  # just "p": pass on this file
@@ -377,14 +387,15 @@ def handle_untracked_file(file):
         # p <digit> handling:
         # create a list representing the path
         folders = []
-        path = file  # make a copy
+        path = relative_path
         while path != "":
             head, tail = os.path.split(path)
             folders.append(tail)
             path = head
         folders.reverse()
-        # now file a/b/c.h becomes [a, b, c.h]
+        # now relative_path /a/b/c.h becomes [a, b, c.h]
         # only allow selection of a folder on path
+        print("DEBUG: folders", folders)
         if os.path.isfile(file):
             folders.pop()  # remove file as an option
         if len(folders) < inp:
@@ -399,10 +410,11 @@ def handle_untracked_file(file):
         return
     elif inp.isdigit():
         folders = []
-        while file != "":
-            head, tail = os.path.split(file)
+        path = relative_path
+        while path != "":
+            head, tail = os.path.split(path)
             folders.append(tail)
-            file = head
+            path = head
         folders.reverse()
         # folders is now a list of folder names maybe followed by a file
         inp = int(inp)
@@ -416,12 +428,15 @@ def handle_untracked_file(file):
         del folders[inp : ]  # remove folders beyond specified digit
         # rebuild the path to be ignored
         path = folders[0]
-        for folder in folders[1:]:
+        for folder in folders[1 : ]:
             path = os.path.join(path, folder)
         pass_on_this_path = path + "/"  # we can skip some matching paths
         add_to_gitignore("/" + path + "/")
+    elif inp == "h" or inp == "?":
+        print(UNMANAGED_RESPONSES)
+        handle_untracked_file(file)
     elif os.path.isdir(file):
-        print("it's a directory...")
+        print("examine directory content...")
         # it's a directory. Prompt for disposition of each file in the
         # dir tree:
         for (dirpath, dirnames, filenames) in os.walk(get_root(file)):
@@ -443,10 +458,14 @@ def local_push():
         print("- found untracked files. Specify what to do:")
         for file in untracked:
             handle_untracked_file(get_root(file))
+    command = ["git", "-c", "color.ui=false", "commit", "-a"]
     try_again = True
+    if os.name == "nt":  # on Win32, must leave stdin/stdout normal
+        # to run editor in the command window
+        git_run(command)
+        try_again = False  # hack to skip following test and retry loop
     while try_again:
-        sp = git_run(["git", "-c", "color.ui=false", "commit", "-a"],
-                     capture="stdout_only")
+        sp = git_run(command, capture="stdout_only")
         out = sp_stdout(sp)
         print("- git output:\n", out, "-----------------")
         try_again = False
