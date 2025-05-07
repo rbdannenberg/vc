@@ -508,6 +508,16 @@ def process_possible_merge_conflict(out):
     return False
 
 
+def print_git_config_error():
+    print("- If git(hub) is using the wrong account, it may be because git")
+    print("-     has not configured your .git/config file properly. You can")
+    print("-     specify the account to use for authorization in the url, e.g.")
+    print('-     in .git/config under [remote "origin"], instead of')
+    print("-         url = git@github.com:rbdannenberg/vc.git")
+    print("-     use url = git@github.com-rbdannenberg:rbdannenberg/vc.git")
+    print("-     You can make this change manually with any text editor.")
+
+
 def push(args, extra_push_args = []):
     branch = show_branch()
     # allow either "vc push local" or just "vc push":
@@ -603,21 +613,7 @@ def push(args, extra_push_args = []):
                 print("- 'vc push' did not complete because your local repo")
                 print("-     is not up-to-date.")
             elif out.find(" denied to ") >= 0:
-                print("- If git(hub) is using the wrong account,",
-                      "it may be because git")
-                print("-     has not configured your .git/config",
-                      "file properly. You can")
-                print("-     specify the account to use for",
-                      "authorization in the url, e.g.")
-                print('-     in .git/config under [remote ',
-                      '"origin"], instead of')
-                print("-         url =",
-                     "git@github.com:rbdannenberg/vc.git")
-                print("-     use")
-                print("-         url =",
-                      "git@github.com-rbdannenberg:rbdannenberg/vc.git")
-                print("-     You can make this change manually",
-                      "with any text editor.")
+                print_git_config_error()
             else:
                 print("- local files pushed to main branch on remote")
 
@@ -637,6 +633,10 @@ def do_a_pull(extra_args = []):
         print("-   modifications. You should run 'vc push local' to save your")
         print("-   local modifications. Then run 'vc pull' again to merge")
         print("-   changes from the main repo into your local copy.")
+    elif (out.find("fatal: Could not read from remote") >= 0 or
+          out.find("ERROR: Repository not found") >= 0):
+        print("- ERROR: There is a problem accessing the repo.")
+        print_git_config_error()
 
 
 def pull(args):
