@@ -201,9 +201,9 @@ def show_branch():
     sp = git_run(["git", "-c", "color.ui=false", "status"],
                  capture="stdout_only")
     # first line is main or branch name:
-    branch = sp_stdout(sp).split('\n', 1)[0]
-    print("- " + branch)
-    return branch[10 : ].strip()  # strip "On branch " from beginning
+    branch_info = sp_stdout(sp).split('\n', 1)[0]
+    print("- " + branch_info)
+    return branch_info[10 : ].strip()  # strip "On branch " from beginning
 
 
 def get_branches():
@@ -479,7 +479,7 @@ def local_push():
     return True
 
 
-def process_possible_merge_conflict(out):
+def process_possible_merge_conflict(out, current_branch):
     """look for Merge conflict in git output and deal with it.
     This can come from either merging main branch into another
     branch or doing a git pull before a git push. Writes
@@ -490,6 +490,7 @@ def process_possible_merge_conflict(out):
         conflict_files = ""
         lines = out.splitlines()
         with open("files_with_conflicts.txt", "w") as text_file:
+            print(current_branch, file=text_file)
             for line in lines:
                 pos = line.find("Merge conflict in ")
                 if pos >= 0:
@@ -519,14 +520,14 @@ def print_git_config_error():
 
 
 def push(args, extra_push_args = []):
-    branch = show_branch()
+    current_branch = show_branch()
     # allow either "vc push local" or just "vc push":
     if (len(args) == 2 and args[1] == "local") or len(args) == 1:
-        make_backup(branch)
+        make_backup(current_branch)
         if not local_push():
             print("- exiting the push command, no action taken")
             return
-    on_main_branch = branch in ["main", "master"]
+    on_main_branch = current_branch in ["main", "master"]
     print("- " + ('' if on_main_branch else 'not') + " on main branch")
     # (main branch could have another name but should be "main"
     if len(args) == 1:  # only do this if non-local
@@ -548,12 +549,12 @@ def push(args, extra_push_args = []):
             print("- merging with main branch before pushing branch to remote")
             do_a_checkout(main_branch)
             do_a_pull()
-            do_a_checkout(branch)
+            do_a_checkout(current_branch)
             sp = git_run(["git", "-c", "color.ui=false", "merge", main_branch],
                          capture="stdout_only")
             out = sp_stdout(sp)
             print("- git output:\n", out, "-----------------")
-            if process_possible_merge_conflict(out):
+            if process_possible_merge_conflict(out, current_branch):
                 return
             # do another commit after merging main
             print("- commit any local changes from merge before " +
@@ -561,11 +562,11 @@ def push(args, extra_push_args = []):
             git_run(["git", "commit"])
             # finally push to remote:
             print("- push local changes to remote")
-            git_run(["git", "push", "origin", branch])
-            git_run(["git", "branch", "--set-upstream-to=origin/" + branch,
-                     branch])
+            git_run(["git", "push", "origin", current_branch])
+            git_run(["git", "branch", "--set-upstream-to=origin/" + current_branch,
+                     current_branch])
             print("- remote main and branch were merged into local files, and")
-            print("- local files pushed to remote branch " + branch)
+            print("- local files pushed to remote branch " + current_branch)
             return
         else:
             git_run(["git", "fetch"])
@@ -580,7 +581,7 @@ def push(args, extra_push_args = []):
                                   "stdout_only")
                     out = sp_stdout(sp)
                     print("- git output:\n", out, "-----------------")
-                    if process_possible_merge_conflict(out):
+                    if process_possible_merge_conflict(out, current_branch):
                         return
                     elif out.find("git config pull.rebase false") >= 0:
                         print("- Automatic merge failed, so you must now",
@@ -666,30 +667,29 @@ def pull(args):
         sp = git_run(["git", "merge", main_branch], "stdout_only")
         out = sp_stdout(sp)
         print("- git output:\n", out, "-----------------")
-        process_possible_merge_conflict(out)
+        process_possible_merge_conflict(out, current_branch)
         print("- CHECK CAREFULLY - RESOLVING A MERGE FROM MAIN IS UNTESTED")
 
 
 def resolve(args):
     """Implementation of vc resolve. Uses files_with_conflicts.txt"""
-    branch = show_branch()
+    current_branch = show_branch()
     with open("files_with_conflicts.txt", "r") as text_file:
-        conflict_files = text_file.read()
-    conflict_branch = conflict_files.pop(0)
-    if branch != conflict_branch:
-        print("- conflict branch is not current branch; " +
-              "switching to conflict branch")
+        conflict_files = text_file.readlines()
+    conflict_branch = conflict_files.pop(0).strip()
+    if current_branch != conflict_branch:
+        print("- conflict branch is not current branch; switching from\n    ",
+              repr(current_branch), "to conflict branch", repr(conflict_branch))
         do_a_checkout(conflict_branch)
-        branch = show_branch()
-        if branch != conflict_branch:
+        current_branch = show_branch()
+        if current_branch != conflict_branch:
             print("- failed to switch to conflict branch, exiting command")
             return
-    on_main_branch = branch in ["main", "master"]
+    on_main_branch = current_branch in ["main", "master"]
 
     if confirm("that the following files with conflicts are\n" + \
                "resolved and you are ready to push changes to the repo.\n" + \
-               conflict_files):
-        conflict_files = conflict_files.splitlines()
+               " ".join(conflict_files)):
         sp = git_run(["git", "-c", "color.ui=false", "add"] + conflict_files,
                      capture="stdout_only")
         out = sp_stdout(sp)
@@ -708,7 +708,7 @@ def resolve(args):
             print("- files with conflicts that you resolved have been pushed " + \
                   "to the repo")
         else:
-            sp = git_run(["git", "push", "origin", branch], "stdout_only")
+            sp = git_run(["git", "push", "origin", current_branch], "stdout_only")
             out = sp_stdout(sp)
             print("- git output;\n", out, "----------------")
         os.remove("files_with_conflicts.txt")
