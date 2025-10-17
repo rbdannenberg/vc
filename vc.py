@@ -360,7 +360,7 @@ def pull(args, extra_pull_args = []):
     print("- git output:\n", out, "-----------------")
     if out.find("signing failed") >= 0:
         print("- if git tried to use the wrong account or userid for this")
-        print("-   project, edit the remote origini url in .git/config to")
+        print("-   project, edit the remote origin url in .git/config to")
         print("-   have the form git@github.com-<userid>:<userid>/<repo>.git")
         print("-   and try again.")
         
