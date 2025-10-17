@@ -207,7 +207,10 @@ def show_branch():
 
 
 def get_branches():
-    """Get a list of branches with current one at the beginning"""
+    """Get a list of branches with current one at the beginning
+    Return a tuple of (local_branches, remote_branches), each of which
+    is a list of strings. The first in local_branches is the current one.
+    """
     sp = git_run(["git", "-c", "color.ui=false", "branch"],
                  capture = "stdout_only")
     # output is lines with branch names. current branch has "*"
@@ -219,8 +222,18 @@ def get_branches():
                 branches[0] = b[1 : ].strip()
             else:
                 branches.append(b)
-    print(branches)
-    return branches
+
+    # now get remote branches and see if any are missing from our list
+    remotes = []
+    sp = git_run(["git", "-c", "color.ui=false", "branch", "-r"],
+                 capture = "stdout_only")
+    for b in sp_stdout(sp).split('\n'):
+        b = b.strip()
+        if len(b) > 0:
+            if b not in branches:
+                remotes.append(b)
+    print("local", branches, "remote", remotes)
+    return (branches, remotes)
 
 
 def warn_about_hash_files(src):
@@ -537,12 +550,12 @@ def push(args, extra_push_args = []):
         if not on_main_branch:  # merge in main in case it changed on remote
             print("- not on main branch, so updating main branch " +
                   "and merging first")
-            branches = get_branches()
-            if "main" in branches:
-                main_branch = "main"
-            elif "master" in branches:
-                main_branch = "master"
-            else:
+            branches, remotes = get_branches()
+            main_branch = None
+            for b in branches:
+                if b in ["main", "master"]:
+                    main_branch = b
+            if not main_branch:
                 print('- Could not find "main" or "master" in branches')
                 print('- Exiting command; did nothing')
                 return
@@ -647,7 +660,7 @@ def pull(args):
     on_main_branch = current_branch in ["main", "master"]
     if not on_main_branch:  # merge from main
         print("- Attempting to merge in changes from main branch")
-        branches = get_branches()
+        branches, remotes = get_branches()
         main_branch = False
         for b in branches:
             if b in ["main", "master"]:
@@ -835,8 +848,8 @@ def mkbranch(args):
     else:
         print('- command syntax is "vc branch <branch-name>"')
         return
-    branches = get_branches()
-    if branch_name in branches:
+    branches, remotes = get_branches()
+    if branch_name in branches or branch_name in remotes:
         print('- ' + branch_name + ' already exists, ignoring command')
         return
     if confirm("create branch " + branch_name):
@@ -847,11 +860,15 @@ def do_a_checkout(branch):
     git_run(["git", "checkout", branch])
 
 
+def do_a_remote_checkout(branch):
+    git_run(["git", "checkout", "-b", branch, "origin/" + branch])
+
+
 def branch(args):
     """Implements vc branch command"""
     if len(args) != 1:
         print("WARNING: branch command ignoring args", args[1:])
-    branches = get_branches()
+    branches, remotes = get_branches()
     print("Select the branch you want to work in:")
     i = 0
     current_msg = " (current)"
@@ -859,12 +876,23 @@ def branch(args):
         i = i + 1
         print("    " + str(i) + ": " + b + current_msg)
         current_msg = ""
+    if len(remotes) > 0:
+        print("---- Remote branches not found locally ----")
+        for b in remotes:
+            i = i + 1
+            print("    " + str(i) + ": " + b)
     i = get_number("branch", 1, i)
     if i == False:
         print("Command ignored, current branch is", branches[0])
         return
-    branch = branches[i - 1]
-    do_a_checkout(branch)
+    i -= 1
+    if i < len(branches):
+        branch = branches[i]
+        do_a_checkout(branch)
+    elif i < len(branches) + len(remotes):
+        i -= len(branches)
+        branch = remotes[i]
+        do_a_remote_checkout(branch)
 
 
 COMMANDS = ["push", "pull", "info", "new", "mv", "checkout", "rm", 
