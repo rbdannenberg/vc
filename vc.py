@@ -45,7 +45,7 @@ vc push
     Backup whole root directory from root to 
         root/../root-backups/timestamp/
     Check in (git commit -a; git push) the current files to the
-         master repo.
+         main repo.
     Always checks in files that have changed (as in git commit -a)
     Prompts for what to do with files that are not managed. 
     Responses to prompts are:
@@ -54,25 +54,54 @@ vc push
          x - add file's extension to the ignore list
          d - delete the file (after confirm)
          p - pass (do not add to repo, do nothing with file)
+         p n - pass on everything in directory n, e.g. if prompt is
+             a/b/c.h, '2' will pass on everything in a/b
          ? or h - print this help and prompt again
          1,2,3,... - add nth folder of this path to ignore list;
              if prompt is xyz/tmp/foo.test, '2' will add /xyz/tmp/
              to .gitignore.
+    FOR BRANCHES
+    If the current branch is not main, merge main with the branch
+    If there is a conflict, stop so user can resolve conflicts
+        (see vc resolve)
+    Recommit the branch
+    Push to the branch to remote
+    
 vc push local
     Just like "vc push" except this checks in (git commit) 
         to local repo only.
 vc pull
-    Check out (git pull) from the master repo.
+    Check out (git pull) from the main repo.
+
+vc reset
+    Force local repo to match main repo
+
+vc resolve
+    If there is a merge conflict, you must manually fix the files to resolve
+    conflicts. Then use "vc resolve" to push the changes to the repo. If you
+    are on a branch, the changes will be pushed to the corresponding remote
+    branch.
 
 vc rm <file>
     Remove <file> from local repo and from local filesystem. Use push to
-    update the master repo.
+    update the main repo.
 
 Note: I don't want to encourage branches, but the basics are:
 git branch new-branch-name -- create a new branch, do not change working branch
 git checkout new-branch-name -- make new-branch-name the working branch
-git checkout master -- return to master as the working branch
+git checkout main -- return to main as the working branch
 git merge new-branch-name -- merge new-branch-name changes into working branch
+
+But AMADS project is using branches and pull requests, so the following
+are implemented to support the project conventions:
+
+vc mkbranch <branch-name>
+    Create a new branch named <branch-name>. Warns if branch-name exists.
+
+vc branch
+    Select a branch and make it current
+
+(see vc push for special branch behavior)
 """
 
 repo_root = None
@@ -82,15 +111,54 @@ def show_help():
     print(HELP)
 
 
-def get_root(suffix):
+def git_run(command, capture=False):
+    """use subprocess to run a command. Print the command first. 
+    If capture is False, use stdout and stderr.
+    If capture is True, use PIPE for stdout and stderr
+    If capture is "stdout_only", use PIPE only for stdout
+    """
+    print("* run: ", end="")
+    for field in command:
+        print(field + " ", end="")
+    print()
+    if capture == "stdout_only":
+        sp = subprocess.run(command,
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    elif capture:
+        sp = subprocess.run(command,
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    else:
+        sp = subprocess.run(command)
+    return sp
+
+
+def sp_stdout(sp):
+    return sp.stdout.decode("utf-8")
+
+
+def sp_stderr(sp):
+    return sp.stderr.decode("utf-8")
+
+
+def get_root(suffix=""):
+    """returns a full path consisting of the root of this local repo
+    joined with the file or subpath in suffix
+    """
     global repo_root
     if not repo_root:
-        sp = subprocess.run(["git", "rev-parse", "--show-toplevel"],
-                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-        repo_root = sp.stdout.decode("utf-8").strip()
+        sp = git_run(["git", "rev-parse", "--show-toplevel"], "stdout_only")
+        repo_root = sp_stdout(sp).strip()
         if not os.path.isabs(repo_root):
             raise Exception("Could not get root for repo")
-    return repo_root + suffix
+        if repo_root[-1] == "/" or repo_root[-1] == "\\":
+            repo_root = repo_root[ : -1]
+    if len(suffix) > 0:
+        # join repo_root to suffix, take care with separators
+        # repo_root has no trailing separator (see above)
+        if suffix[0] == "/" or suffix[0] == "\\":
+            suffix = suffix[1 : ]
+        return repo_root + "/" + suffix
+    return repo_root
 
 
 def main():
@@ -102,10 +170,9 @@ def main():
     changed_wd = False
     # if we are supposed to be in a working directory tree, get some info:
     if sys.argv[1] not in ["checkout", "new"]:
-        sp = subprocess.run(["git", "remote", "-v"],
-                            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        remotes = sp.stdout.decode("utf-8").splitlines()
-        errout = sp.stderr.decode("utf-8")
+        sp = git_run(["git", "remote", "-v"], True)
+        remotes = sp_stdout(sp).splitlines()
+        errout = sp_stderr(sp)
         if len(remotes) == 2 and remotes[0].find("origin") == 0:
             # expected in simple cases
             remote = remotes[0]
@@ -113,13 +180,13 @@ def main():
             if loc2 < 0:
                 raise Exception("Could not make sense of remote: " + remote)
             print("- " + remote[7 : loc2])
-        elif errout.find("fatal:") >= 0:
+        elif len(errout) > 0:
             print("- error output from git:", errout, end="")
             print("- vc: Maybe you are not in a working directory.")
             return
         else:
             for line in remotes: print("- " + remotes)
-        os.chdir(get_root(""))
+        os.chdir(get_root())
         if original_wd != os.getcwd():
             changed_wd = True
             print("- running in repo root dir:", os.getcwd())
@@ -131,23 +198,63 @@ def main():
 
 
 def show_branch():
-    sp = subprocess.run(["git", "status"], stdout=subprocess.PIPE)
+    sp = git_run(["git", "-c", "color.ui=false", "status"],
+                 capture="stdout_only")
     # first line is main or branch name:
-    print("- " + sp.stdout.decode("utf-8").split('\n', 1)[0])
+    branch_info = sp_stdout(sp).split('\n', 1)[0]
+    print("- " + branch_info)
+    return branch_info[10 : ].strip()  # strip "On branch " from beginning
 
 
-def make_backup():
-    backups = get_root("-backups")
+def get_branches():
+    """Get a list of branches with current one at the beginning"""
+    sp = git_run(["git", "-c", "color.ui=false", "branch"],
+                 capture = "stdout_only")
+    # output is lines with branch names. current branch has "*"
+    branches = [None]
+    for b in sp_stdout(sp).split('\n'):
+        b = b.strip()
+        if len(b) > 0:
+            if b[0] == "*":
+                branches[0] = b[1 : ].strip()
+            else:
+                branches.append(b)
+    print(branches)
+    return branches
+
+
+def warn_about_hash_files(src):
+    """
+    Copy a directory and its contents, handling files with hash (#) characters.
+    """
+    for root, dirs, files in os.walk(src):
+        for file in files:
+            if '#' in file:
+                print("WARNING: Backup is skipping file with hash character:")
+                print(f"    {os.path.join(root, file)}")
+                print("Recommend to delete it.")
+                delete_after_confirm(os.path.join(root, file))
+
+
+def make_backup(branch):
+    # remove trailing "/" and change name to <repname>-backups
+    backups = get_root() + "-backups"
     if not os.path.isdir(backups):
         if os.path.isfile(backups):
             raise Exception("Unexpected file: " + backups)
         os.mkdir(backups)
     backup = backups + "/" + time.strftime("%Y%m%d-%H%M%S")
-    shutil.copytree(get_root(""), backup,
+    warn_about_hash_files(get_root())
+    print("- backup local repo to " + backup)
+    shutil.copytree(get_root(), backup,
                     ignore=shutil.ignore_patterns('.vs', '.git', '*.vcxproj',
-                               'CMakeFiles', 'CMakeScripts', 'Debug', 
+                               'CMakeFiles', 'CMakeScripts', 'Debug', '*#*',
                                'Release', 'build', 'cmake_install.cmake',
                                'o2.build', 'o2.xcodeproj', 'static.cmake'))
+    # save the current branch name into the file named branchname.txt so
+    # later we can read what branch the backup corresponds to
+    with open(backup + "/branchname.txt", "w") as file:
+        file.write(branch + "\n")
 
 
 def find_untracked(dryrun):
@@ -189,7 +296,7 @@ def find_untracked(dryrun):
 
 
 def add_to_gitignore(text):
-    with open(get_root("/.gitignore"), "a") as file_object:
+    with open(get_root(".gitignore"), "a") as file_object:
         file_object.write("\n" + text + "\n")
     print('- added "' + text + '"' + " to repo's .gitignore file.")
 
@@ -199,9 +306,29 @@ def confirm(prompt):
     return inp == "Y"
 
 
+def get_number(prompt, low, high):
+    inp = input("Type number of " + prompt + " or anything else to ignore: ")
+    try:
+        i = int(inp)
+    except ValueError:
+        return False
+    if i < low or i > high:
+        return false
+    return i
+
+
 def delete_after_confirm(filepath):
     if confirm("delete " + filepath):
-        os.remove(filepath)
+        try:
+            if os.path.isfile(filepath) or os.path.islink(filepath):
+                os.remove(filepath)
+            elif os.path.isdir(filepath):
+                shutil.rmtree(filepath)
+            else:
+                print(f"Could not delete {filepath}. Please do it manually.")
+        except OSError as e:
+            print("Error: %s - %s." % (e.filename, e.strerror))
+            print("... proceeding as if user said No to delete.")
         return True
     return False
 
@@ -209,25 +336,35 @@ def delete_after_confirm(filepath):
 pass_on_this_path = None
 
 def handle_untracked_file(file):
+    """file is a full path"""
     global pass_on_this_path
+    assert file[0] == "/" or file[1] == ":"  # unix or win32 full path
+
+    relative_path = file[len(get_root()) : ]  # starting with "/"
 
     if os.path.isdir(file):
-        print("it's a directory...")
+        print("Note: this is a directory...")
 
     if pass_on_this_path != None:
-        if file.find(pass_on_this_path) == 0:
-            print("pass on", file)
+        if relative_path.find(pass_on_this_path) == 0:
+            print("pass on", relative_path)
             return  # do nothing with this file
         else:  # we are past this folder, clear the prefix to be safe
             pass_on_this_path = None
 
-    inp = input("  " + file + ": [aixdph123...] ")
+    if file == "files_with_conflicts.txt":
+        inp = "p"  # pass
+    else:
+        inp = input("  " + relative_path + ": [aixdph123...] ")
     if inp == "a":
-        subprocess.run(["git", "add", get_root("/" + file)])
+        git_run(["git", "add", file])
     elif inp == "i":
-        add_to_gitignore("/" + file)
+        add_to_gitignore(relative_path)
     elif inp == "x":
-        name, ext = os.path.splitext(file)
+        file_without_sep = file
+        if relative_path[-1] == "/":
+            file_without_sep = relative_path[ : -1]
+        name, ext = os.path.splitext(file_without_sep)
         if len(ext) < 1 or ext[0] != ".":
             print("- this file has no extension, try again")
             handle_untracked_file(file)
@@ -247,19 +384,25 @@ def handle_untracked_file(file):
         if not inp[0].isdigit():  # "p" and garbage, accept as "p"
             return
         inp = int(inp)
+        # p <digit> handling:
+        # create a list representing the path
         folders = []
-        while file != "":
-            head, tail = os.path.split(file)
+        path = relative_path
+        while path != "":
+            head, tail = os.path.split(path)
             folders.append(tail)
-            file = head
+            path = head
         folders.reverse()
+        # now relative_path /a/b/c.h becomes [a, b, c.h]
         # only allow selection of a folder on path
+        print("DEBUG: folders", folders)
         if os.path.isfile(file):
             folders.pop()  # remove file as an option
         if len(folders) < inp:
             print("- there are not", inp, "folders on path, try again")
             handle_untracked_file(file)
             return
+        # construct path where number of directories is given by <digit>:
         del folders[inp : ]
         pass_on_this_path = folders[0]
         for folder in folders[1:]:
@@ -267,11 +410,13 @@ def handle_untracked_file(file):
         return
     elif inp.isdigit():
         folders = []
-        while file != "":
-            head, tail = os.path.split(file)
+        path = relative_path
+        while path != "":
+            head, tail = os.path.split(path)
             folders.append(tail)
-            file = head
+            path = head
         folders.reverse()
+        # folders is now a list of folder names maybe followed by a file
         inp = int(inp)
         # only allow selection of a folder on path:
         if os.path.isfile(file):
@@ -280,16 +425,21 @@ def handle_untracked_file(file):
             print("- there are not", inp, "folders on path, try again")
             handle_untracked_file(file)
             return
-        del folders[inp : ]
+        del folders[inp : ]  # remove folders beyond specified digit
+        # rebuild the path to be ignored
         path = folders[0]
-        for folder in folders[1:]:
+        for folder in folders[1 : ]:
             path = os.path.join(path, folder)
+        pass_on_this_path = path + "/"  # we can skip some matching paths
         add_to_gitignore("/" + path + "/")
+    elif inp == "h" or inp == "?":
+        print(UNMANAGED_RESPONSES)
+        handle_untracked_file(file)
     elif os.path.isdir(file):
-        print("it's a directory...")
+        print("examine directory content...")
         # it's a directory. Prompt for disposition of each file in the
         # dir tree:
-        for (dirpath, dirnames, filenames) in os.walk(file):
+        for (dirpath, dirnames, filenames) in os.walk(get_root(file)):
             for name in filenames:
                 handle_untracked_file(os.path.join(dirpath, name))
     else:
@@ -298,75 +448,274 @@ def handle_untracked_file(file):
         
 
 def local_push():
-    sp = subprocess.run(["git", "commit", "-a", "--dry-run", "-m", "dry run"],
-                        stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    dryrun = sp.stdout.decode("utf-8")
-    dryrunerr = sp.stderr.decode("utf-8")
+    """Do a local commit and return True on success"""
+    sp = git_run(["git", "-c", "color.ui=false", "commit", "-a", 
+                  "--dry-run", "-m", "dry run"], capture=True)
+    dryrun = sp_stdout(sp)
+    dryrunerr = sp_stderr(sp)
     untracked = find_untracked(dryrun + dryrunerr)
     if len(untracked) > 0:
         print("- found untracked files. Specify what to do:")
         for file in untracked:
-            handle_untracked_file(file)
-    subprocess.run(["git", "commit", "-a"])
-    
+            handle_untracked_file(get_root(file))
+    command = ["git", "-c", "color.ui=false", "commit", "-a"]
+    try_again = True
+    if os.name == "nt":  # on Win32, must leave stdin/stdout normal
+        # to run editor in the command window
+        git_run(command)
+        try_again = False  # hack to skip following test and retry loop
+    while try_again:
+        sp = git_run(command, capture="stdout_only")
+        out = sp_stdout(sp)
+        print("- git output:\n", out, "-----------------")
+        try_again = False
+        if out.find("Failed") >= 0:  # test for pre-commit hook failure
+            print("- local commit failed, (e.g., maybe a hook changed a file)")
+            try_again = confirm("try again")
+            if not try_again:
+                print("- there was apparently no push to local repo")
+                return False
+    print("- finished push to local repo")
+    return True
+
+
+def process_possible_merge_conflict(out, current_branch):
+    """look for Merge conflict in git output and deal with it.
+    This can come from either merging main branch into another
+    branch or doing a git pull before a git push. Writes
+    new file files_with_conflicts.txt if there are conflicts.
+    Returns True iff a conflict occurred and must be resolved.
+    """
+    if out.find("Merge conflict") >= 0:
+        conflict_files = ""
+        lines = out.splitlines()
+        with open("files_with_conflicts.txt", "w") as text_file:
+            print(current_branch, file=text_file)
+            for line in lines:
+                pos = line.find("Merge conflict in ")
+                if pos >= 0:
+                    filename = line[pos + 18 : ]
+                    print(filename, file=text_file)
+                    conflict_files += filename + "\n"
+        print("- Automatic merge failed, so you must now",
+              "manually merge changes")
+        print("-     from the remote repo with your local",
+              "changes; then run")
+        print("-     'vc resolve' to finally push your changes",
+              "to the remote repo.")
+        print("-     files to edit are:")
+        print(conflict_files)
+        return True
+    return False
+
+
+def print_git_config_error():
+    print("- If git(hub) is using the wrong account, it may be because git")
+    print("-     has not configured your .git/config file properly. You can")
+    print("-     specify the account to use for authorization in the url, e.g.")
+    print('-     in .git/config under [remote "origin"], instead of')
+    print("-         url = git@github.com:rbdannenberg/vc.git")
+    print("-     use url = git@github.com-rbdannenberg:rbdannenberg/vc.git")
+    print("-     You can make this change manually with any text editor.")
+
 
 def push(args, extra_push_args = []):
-    show_branch()
+    current_branch = show_branch()
     # allow either "vc push local" or just "vc push":
     if (len(args) == 2 and args[1] == "local") or len(args) == 1:
-        make_backup()
-        local_push()
+        make_backup(current_branch)
+        if not local_push():
+            print("- exiting the push command, no action taken")
+            return
+    on_main_branch = current_branch in ["main", "master"]
+    print("- " + ('' if on_main_branch else 'not') + " on main branch")
+    # (main branch could have another name but should be "main"
     if len(args) == 1:  # only do this if non-local
-        if confirm("push to remote repo"):
-            subprocess.run(["git", "fetch"])
-            sp = subprocess.run(["git", "status", "-sb"],
-                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-            out = sp.stdout.decode("utf-8")
+        if not confirm("push to remote repo"):
+            print("- local changes are not committed to remote repo")
+            return 
+        if not on_main_branch:  # merge in main in case it changed on remote
+            print("- not on main branch, so updating main branch " +
+                  "and merging first")
+            branches = get_branches()
+            if "main" in branches:
+                main_branch = "main"
+            elif "master" in branches:
+                main_branch = "master"
+            else:
+                print('- Could not find "main" or "master" in branches')
+                print('- Exiting command; did nothing')
+                return
+            print("- merging with main branch before pushing branch to remote")
+            do_a_checkout(main_branch)
+            do_a_pull()
+            do_a_checkout(current_branch)
+            sp = git_run(["git", "-c", "color.ui=false", "merge", main_branch],
+                         capture="stdout_only")
+            out = sp_stdout(sp)
+            print("- git output:\n", out, "-----------------")
+            if process_possible_merge_conflict(out, current_branch):
+                return
+            # do another commit after merging main
+            print("- commit any local changes from merge before " +
+                  "pushing to remote")
+            git_run(["git", "commit"])
+            # finally push to remote:
+            print("- push local changes to remote")
+            git_run(["git", "push", "origin", current_branch])
+            git_run(["git", "branch", "--set-upstream-to=origin/" + current_branch,
+                     current_branch])
+            print("- remote main and branch were merged into local files, and")
+            print("- local files pushed to remote branch " + current_branch)
+            return
+        else:
+            git_run(["git", "fetch"])
+            sp = git_run(["git", "-c", "color.ui=false", "status", "-sb"],
+                         capture="stdout_only")
+            out = sp_stdout(sp)
             if out.find("behind") >= 0:
-                print("- you must pull changes from the remote repo")
+                print("- You must pull changes from the remote repo")
                 print("-     before you can push any local changes")
                 if confirm("pull from remote repo now"):
-                    sp = subprocess.run(["git", "pull"],
-                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-                    out = sp.stdout.decode("utf-8")
+                    sp = git_run(["git", "-c", "color.ui=false", "pull"],
+                                  "stdout_only")
+                    out = sp_stdout(sp)
                     print("- git output:\n", out, "-----------------")
-                    if out.find("Merge conflict") >= 0:
-                        print("- automatic merge failed, so you must now",
+                    if process_possible_merge_conflict(out, current_branch):
+                        return
+                    elif out.find("git config pull.rebase false") >= 0:
+                        print("- Automatic merge failed, so you must now",
                               "manually merge changes")
                         print("-     from the remote repo with your local",
                               "changes; then run")
                         print("-     'vc push' to finally push your changes",
                               "to the remote repo.")
+                        print("- Consider running the following",
+                              "configuration commands:")
+                        print("-         git config --global pull.rebase true")
+                        print("-         git config --global fetch.prune true")
+                        print("-         git config --global diff.colorMoved",
+                              "zebra")
+                        print("-     based on advice in")
+                        print("-     spin.atomicobject.com/2020/05/05/" + \
+                              "git-configurations-default")
                         return
                 else:
                     print("- local changes are not committed to remote repo")
-                    return 
-            sp = subprocess.run(["git", "push"] + extra_push_args,
-                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-            out = sp.stdout.decode("utf-8")            
+                    return
+
+            sp = git_run(["git", "-c", "color.ui=false", "push"] + \
+                         extra_push_args, capture="stdout_only")
+            out = sp_stdout(sp)            
             print("- git output:\n", out, "-----------------")
             if out.find("hint: Updates were rejected because the tip of " +
                         "your current branch is behind") >= 0:
                 # push failed. Give some advice:
                 print("- 'vc push' did not complete because your local repo")
                 print("-     is not up-to-date.")
-    
+            elif out.find(" denied to ") >= 0:
+                print_git_config_error()
+            else:
+                print("- local files pushed to main branch on remote")
 
-def pull(args, extra_pull_args = []):
-    show_branch()
-    sp = subprocess.run(["git", "pull"] + extra_pull_args,
-                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-    out = sp.stdout.decode("utf-8")
+
+def do_a_pull(extra_args = []):
+    sp = git_run(["git", "-c", "color.ui=false", "pull"] + extra_args,
+                 capture="stdout_only")
+    out = sp_stdout(sp)
     print("- git output:\n", out, "-----------------")
     if out.find("signing failed") >= 0:
         print("- if git tried to use the wrong account or userid for this")
         print("-   project, edit the remote origin url in .git/config to")
         print("-   have the form git@github.com-<userid>:<userid>/<repo>.git")
         print("-   and try again.")
+    elif out.find("You have unstaged changes.") >= 0:
+        print("- Could not pull from the main repo because you have local")
+        print("-   modifications. You should run 'vc push local' to save your")
+        print("-   local modifications. Then run 'vc pull' again to merge")
+        print("-   changes from the main repo into your local copy.")
+    elif (out.find("fatal: Could not read from remote") >= 0 or
+          out.find("ERROR: Repository not found") >= 0):
+        print("- ERROR: There is a problem accessing the repo.")
+        print_git_config_error()
+
+
+def pull(args):
+    """Implements the vc pull command"""
+    current_branch = show_branch()
+    do_a_pull()
+    on_main_branch = current_branch in ["main", "master"]
+    if not on_main_branch:  # merge from main
+        print("- Attempting to merge in changes from main branch")
+        branches = get_branches()
+        main_branch = False
+        for b in branches:
+            if b in ["main", "master"]:
+                main_branch = b
+        if not b:
+            print("- Error: could not identify main branch name.")
+            print("-    (No branch named main or master.)")
+            print("-    Returning without pulling or merging main branch.")
+            return
+        print("- Switch to local version of main branch")
+        git_run(["git", "checkout", main_branch])
+        print("- Pull updates to main branch.")
+        git_run(["git", "pull", "origin", main_branch])
+        print("- Switch back to branch " + current_branch)
+        git_run(["git", "checkout", current_branch])
+        print("- Merge main branch updates into " + current_branch)
+        sp = git_run(["git", "merge", main_branch], "stdout_only")
+        out = sp_stdout(sp)
+        print("- git output:\n", out, "-----------------")
+        process_possible_merge_conflict(out, current_branch)
+        print("- CHECK CAREFULLY - RESOLVING A MERGE FROM MAIN IS UNTESTED")
+
+
+def resolve(args):
+    """Implementation of vc resolve. Uses files_with_conflicts.txt"""
+    current_branch = show_branch()
+    with open("files_with_conflicts.txt", "r") as text_file:
+        conflict_files = text_file.readlines()
+    conflict_branch = conflict_files.pop(0).strip()
+    if current_branch != conflict_branch:
+        print("- conflict branch is not current branch; switching from\n    ",
+              repr(current_branch), "to conflict branch", repr(conflict_branch))
+        do_a_checkout(conflict_branch)
+        current_branch = show_branch()
+        if current_branch != conflict_branch:
+            print("- failed to switch to conflict branch, exiting command")
+            return
+    on_main_branch = current_branch in ["main", "master"]
+
+    if confirm("that the following files with conflicts are\n" + \
+               "resolved and you are ready to push changes to the repo.\n" + \
+               " ".join(conflict_files)):
+        sp = git_run(["git", "-c", "color.ui=false", "add"] + conflict_files,
+                     capture="stdout_only")
+        out = sp_stdout(sp)
+        print("- git output;\n", out, "----------------")
+        sp = git_run(["git", "commit", "-a"], capture="stdout_only")
+        out = sp_stdout(sp)
+        print("- git output;\n", out, "----------------")
         
+        if on_main_branch:
+            sp = git_run(["git", "rebase", "--continue"], capture="stdout_only")
+            out = sp_stdout(sp)
+            print("- git output;\n", out, "----------------")
+            sp = git_run(["git", "push"], capture="stdout_only")
+            out = sp_stdout(sp)
+            print("- git output;\n", out, "----------------")
+            print("- files with conflicts that you resolved have been pushed " + \
+                  "to the repo")
+        else:
+            sp = git_run(["git", "push", "origin", current_branch], "stdout_only")
+            out = sp_stdout(sp)
+            print("- git output;\n", out, "----------------")
+        os.remove("files_with_conflicts.txt")
+            
 
 def showinfo(args):
-    subprocess.run(["git", "status"])
+    git_run(["git", "status"])
 
 
 # git@github.com-rbdannenberg:rbdannenberg/pm_csharp.git
@@ -379,24 +728,24 @@ def newrepo(args):
     if not confirm("create local repo and initial check in"):
         print("- vc new command exited without any changes.")
         return
-    subprocess.run(["git", "init"])
+    git_run(["git", "init"])
     # rename master to main -- less offensive, more compatible with github
-    subprocess.run(["git", "checkout", "-b", "main"])
+    git_run(["git", "checkout", "-b", "main"])
     local_push()
     url = input("URL for remote repository (you may need a URL in the\n" +
                 "    form git@github.com-<userid>:<userid>/<repo>.git: ")
-    subprocess.run(["git", "remote", "add", "origin", url])
-    subprocess.run(["git", "fetch", "--all"])
-    subprocess.run(["git", "branch", "--set-upstream-to=origin/main", "main"])
+    git_run(["git", "remote", "add", "origin", url])
+    git_run(["git", "fetch", "--all"])
+    git_run(["git", "branch", "--set-upstream-to=origin/main", "main"])
     # in case there are files already, e.g. license or README.md, pull them in
-    pull([], extra_pull_args=["--allow-unrelated-histories"])
+    do_a_pull([], extra_args=["--allow-unrelated-histories"])
     if not os.path.isfile("README.md"):
         if confirm("create README.md (optional)"):
             with open("README.md", "w") as readme:
                 readme.write("# " + url)
-            subprocess.run(["git", "add", "README.md"])
-            subprocess.run(["git", "commit", "-m", "created README.md"])
-    # subprocess.run(["git", "branch", "-M", "main"])
+            git_run(["git", "add", "README.md"])
+            git_run(["git", "commit", "-m", "created README.md"])
+    # git_run(["git", "branch", "-M", "main"])
     push(["push"], extra_push_args=["--set-upstream", "origin", "main"])
 
 
@@ -410,22 +759,32 @@ def checkout(args):
         url = urlparse(args[1])
         path = url[2]
         dir = os.path.split(path)
-        dir = os.path.splitext(dir)[0]
+        print("- found path components:", dir)
+        # get after "/" and before ".":
+        #     git@github.com:rbdannenberg/soundcool.git -> soundcool
+        dir = dir[-1].split(".")[0]
         print("- derived '" + dir + "' as local directory")
+        if os.path.exists(dir):
+            print("-", dir, "already exists, checkout cancelled")
+            return
+        inp = input("Type Y to proceed: ")
+        if inp != "Y":
+            print("- user cancelled checkout")
+            return
     else:
         dir = args[2]
     if os.path.isdir(dir):
         raise Exception("Directory already exists: " + dir)
     if len(args) == 4:
-        sp = subprocess.run(["git", "clone", "-b", args[3], args[1], dir],
-                            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        sp = git_run(["git", "clone", "-b", args[3], args[1], dir],
+                     capture=True)
     else:
-        sp = subprocess.run(["git", "clone", args[1], dir],
-                            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    out = sp.stdout.decode("utf-8")
+        sp = git_run(["git", "clone", args[1], dir], capture=True)
+    out = sp_stdout(sp)
+    errout = sp_stderr(sp)
     print(out)
-    out = sp.stderr.decode("utf-8")
-    print(out)
+    if len(errout) > 0:
+        print("- Error output: " + errout)
     if out.find("Could not resolve hostname") >= 0:
         print("- Check status of Internet access")
 
@@ -436,7 +795,7 @@ def rename(args):
             print("- rename " + args[1] + " to " + args[2])
         else:
             print("- move " + args[1:-1] + " to " + args[-1])
-        subprocess.run(["git"] + args)
+        git_run(["git"] + args)
 
 
 def remove(args):
@@ -451,10 +810,66 @@ def remove(args):
     if not os.path.isfile(filename):
         print('- file ' + filename + ' does not exist')
         return
-    subprocess.run(["git", "rm", filename])
+    git_run(["git", "rm", filename])
 
 
-COMMANDS = ["push", "pull", "info", "new", "mv", "checkout", "rm"]
-IMPLEMENTATIONS = [push, pull, showinfo, newrepo, rename, checkout, remove]
+def reset(args):
+    if confirm("that you want to reset your local repo to the main repo\n" +
+               "and DELETE any local versions that may have changed"):
+        # git fetch --all
+        # git reset --hard origin/main
+        print("- git output;")
+        git_run(["git", "fetch", "--all"])
+        git_run(["git", "reset", "--hard", "origin/main"])
+        print("----------------")
+        print("- local repo should now match remote, local files NOT in the")
+        print("  remotely tracked files are unaltered")
+
+                            
+def mkbranch(args):
+    """Implements vc mkbranch <branch>"""
+    if len(args) == 1:
+        branch_name = input("File to remove: ")
+    elif len(args) == 2:
+        branch_name = args[1]
+    else:
+        print('- command syntax is "vc branch <branch-name>"')
+        return
+    branches = get_branches()
+    if branch_name in branches:
+        print('- ' + branch_name + ' already exists, ignoring command')
+        return
+    if confirm("create branch " + branch_name):
+        git_run(["git", "checkout", "-b", branch_name])
+
+
+def do_a_checkout(branch):
+    git_run(["git", "checkout", branch])
+
+
+def branch(args):
+    """Implements vc branch command"""
+    if len(args) != 1:
+        print("WARNING: branch command ignoring args", args[1:])
+    branches = get_branches()
+    print("Select the branch you want to work in:")
+    i = 0
+    current_msg = " (current)"
+    for b in branches:
+        i = i + 1
+        print("    " + str(i) + ": " + b + current_msg)
+        current_msg = ""
+    i = get_number("branch", 1, i)
+    if i == False:
+        print("Command ignored, current branch is", branches[0])
+        return
+    branch = branches[i - 1]
+    do_a_checkout(branch)
+
+
+COMMANDS = ["push", "pull", "info", "new", "mv", "checkout", "rm", 
+            "resolve", "reset", "mkbranch", "branch"]
+IMPLEMENTATIONS = [push, pull, showinfo, newrepo, rename, checkout, remove,
+                   resolve, reset, mkbranch, branch]
 
 main()
