@@ -230,6 +230,14 @@ def get_branches():
     for b in sp_stdout(sp).split('\n'):
         b = b.strip()
         if len(b) > 0:
+            if b.find("HEAD") >= 0:
+                continue  # skip origin/HEAD -> origin/main
+            loc = b.find("origin/")
+            if loc == 0:
+                b = b[7 : ]
+            elif loc > 0:
+                print("WARNING: unexpected 'origin/'",
+                      " substring in remote branch name", b)
             if b not in branches:
                 remotes.append(b)
     print("local", branches, "remote", remotes)
