@@ -13,21 +13,23 @@ from urllib.parse import urlparse
 
 UNMANAGED_RESPONSES = """    a - add to repo
     i - add file to ignore list
+    l - add file to local ignore list
     x - add file's extension to the ignore list
     d - delete the file (after confirm)
     p - pass (do not add to repo, do nothing with file)
     p n - pass on this and everything in the nth folder
         of this path (similar to 1, 2, 3 described below)
-    RETURN - if file is a directory, recurse into the directory
     ? or h or other - print this help and prompt again
     1,2,3,... - add nth folder of this path to ignore list;
-        if prompt is xyz/tmp/foo.test, '2' will add /xyz/tmp/
+        if prompt is /xyz/tmp/foo.test, '2' will add /xyz/tmp/
         to .gitignore."""
 
 HELP = """vc - version control. A wrapper to avoid git exposure and damage.
 
 COMMAND SUMMARY
 ---------------
+The option --nb means "no backup" and suppressed copying the repo to backup.
+
 vc checkout url directory [branch]
     Create a local working directory (and clone) from a URL and local 
         directory name. Configure branch as the local branch.
@@ -51,6 +53,7 @@ vc push
     Responses to prompts are:
          a - add to repo
          i - add file to ignore list
+         l - add file to *l*ocal ignore list
          x - add file's extension to the ignore list
          d - delete the file (after confirm)
          p - pass (do not add to repo, do nothing with file)
@@ -91,6 +94,10 @@ git branch new-branch-name -- create a new branch, do not change working branch
 git checkout new-branch-name -- make new-branch-name the working branch
 git checkout main -- return to main as the working branch
 git merge new-branch-name -- merge new-branch-name changes into working branch
+git merge --no-ff new-branch-name -- maybe this is the correct way to merge.
+    My understanding now is that without no-ff, the default is ff and you will
+    get conflicts when intermediate commits are replayed, but I really do not
+    understand this.  Another reason to avoid branches.
 
 But AMADS project is using branches and pull requests, so the following
 are implemented to support the project conventions:
@@ -161,15 +168,23 @@ def get_root(suffix=""):
     return repo_root
 
 
+BACKUP = True
+
 def main():
+    global command_line, BACKUP
     if len(sys.argv) < 2 or sys.argv[1] not in COMMANDS:
         show_help()
         return
+    # process options
+    command_line = sys.argv.copy()
+    if "--nb" in command_line:
+       command_line.remove("--nb")
+       BACKUP = False
     # save current directory
     original_wd = os.getcwd();
     changed_wd = False
     # if we are supposed to be in a working directory tree, get some info:
-    if sys.argv[1] not in ["checkout", "new"]:
+    if command_line[1] not in ["checkout", "new"]:
         sp = git_run(["git", "remote", "-v"], True)
         remotes = sp_stdout(sp).splitlines()
         errout = sp_stderr(sp)
@@ -190,7 +205,7 @@ def main():
         if original_wd != os.getcwd():
             changed_wd = True
             print("- running in repo root dir:", os.getcwd())
-    IMPLEMENTATIONS[COMMANDS.index(sys.argv[1])](sys.argv[1:])
+    IMPLEMENTATIONS[COMMANDS.index(command_line[1])](command_line[1:])
     
     if changed_wd:
         os.chdir(original_wd)
@@ -258,7 +273,11 @@ def warn_about_hash_files(src):
 
 
 def make_backup(branch):
+    global BACKUP
     # remove trailing "/" and change name to <repname>-backups
+    if not BACKUP:
+        print("- skipping backup step per --nb option")
+        return
     backups = get_root() + "-backups"
     if not os.path.isdir(backups):
         if os.path.isfile(backups):
@@ -270,8 +289,11 @@ def make_backup(branch):
     shutil.copytree(get_root(), backup,
                     ignore=shutil.ignore_patterns('.vs', '.git', '*.vcxproj',
                                'CMakeFiles', 'CMakeScripts', 'Debug', '*#*',
-                               'Release', 'build', 'cmake_install.cmake',
-                               'o2.build', 'o2.xcodeproj', 'static.cmake'))
+                               'Release', 'build', 'wxsbuild', 
+                               'cmake_install.cmake',
+                               'o2.build', 'o2.xcodeproj', 'static.cmake',
+                               '*.xcodeproj', '*.sln', '*.vcxproj',
+                               '*.vcxproj.filters'))
     # save the current branch name into the file named branchname.txt so
     # later we can read what branch the backup corresponds to
     with open(backup + "/branchname.txt", "w") as file:
@@ -279,14 +301,12 @@ def make_backup(branch):
 
 
 def find_untracked(dryrun):
+    """
+    dryrun should consist of output from git -add which will be
+    multiple lines that look like "add 'path-to-file'"
+    """
     files = []
-    loc = dryrun.find("Untracked files:")
-    if loc < 0:
-        return files
-    loc = dryrun.find("\n", loc)
-    if loc < 0:
-        raise Exception("Untracked files heading, but no end-of-line")
-    loc += 1
+    loc = 0
     while True:
         loc2 = dryrun.find("\n", loc)
         # terminate file list on blank line, but only after we find at 
@@ -320,6 +340,12 @@ def add_to_gitignore(text):
     with open(get_root(".gitignore"), "a") as file_object:
         file_object.write("\n" + text + "\n")
     print('- added "' + text + '"' + " to repo's .gitignore file.")
+
+
+def add_to_local_ignore(text):
+    with open(get_root(".git/info/exclude"), "a") as file_object:
+        file_object.write("\n" + text + "\n")
+    print('- added "' + text + '"' + " to repo's .git/info/exclude file.")
 
 
 def confirm(prompt):
@@ -361,14 +387,19 @@ def handle_untracked_file(file):
     global pass_on_this_path
     assert file[0] == "/" or file[1] == ":"  # unix or win32 full path
 
-    relative_path = file[len(get_root()) : ]  # starting with "/"
+    relative_path = file[len(get_root()) : ]  # relative_path starts with "/"
 
     if os.path.isdir(file):
         print("Note: this is a directory...")
+        print(" ", relative_path)
+        print("  ... ignoring untracked directory - was not expecting that!")
+        return
 
     if pass_on_this_path != None:
-        if relative_path.find(pass_on_this_path) == 0:
-            print("pass on", relative_path)
+        if (relative_path.find(pass_on_this_path) == 0 or
+            # maybe we disagree on initial "/":
+            (relative_path[0] == "/" and
+             relative_path.find(pass_on_this_path, 1) == 1)):
             return  # do nothing with this file
         else:  # we are past this folder, clear the prefix to be safe
             pass_on_this_path = None
@@ -376,11 +407,13 @@ def handle_untracked_file(file):
     if file == "files_with_conflicts.txt":
         inp = "p"  # pass
     else:
-        inp = input("  " + relative_path + ": [aixdph123...] ")
+        inp = input("  " + relative_path + ": [adilxph123...] ")
     if inp == "a":
         git_run(["git", "add", file])
     elif inp == "i":
         add_to_gitignore(relative_path)
+    elif inp == "l":
+        add_to_local_ignore(relative_path)
     elif inp == "x":
         file_without_sep = file
         if relative_path[-1] == "/":
@@ -409,8 +442,11 @@ def handle_untracked_file(file):
         # create a list representing the path
         folders = []
         path = relative_path
+        print("WARNING: This might fail, so printing some debug info:")
+        print("path", path, "type(path)", type(path))
         while path != "":
             head, tail = os.path.split(path)
+            print("   head", head, "tail", tail)
             folders.append(tail)
             path = head
         folders.reverse()
@@ -432,7 +468,7 @@ def handle_untracked_file(file):
     elif inp.isdigit():
         folders = []
         path = relative_path
-        while path != "":
+        while path != "" and path != "/":
             head, tail = os.path.split(path)
             folders.append(tail)
             path = head
@@ -452,17 +488,11 @@ def handle_untracked_file(file):
         for folder in folders[1 : ]:
             path = os.path.join(path, folder)
         pass_on_this_path = path + "/"  # we can skip some matching paths
+        print("pass_on_this_path becomes", pass_on_this_path)
         add_to_gitignore("/" + path + "/")
     elif inp == "h" or inp == "?":
         print(UNMANAGED_RESPONSES)
         handle_untracked_file(file)
-    elif os.path.isdir(file):
-        print("examine directory content...")
-        # it's a directory. Prompt for disposition of each file in the
-        # dir tree:
-        for (dirpath, dirnames, filenames) in os.walk(get_root(file)):
-            for name in filenames:
-                handle_untracked_file(os.path.join(dirpath, name))
     else:
         print(UNMANAGED_RESPONSES)
         handle_untracked_file(file)
@@ -470,8 +500,8 @@ def handle_untracked_file(file):
 
 def local_push():
     """Do a local commit and return True on success"""
-    sp = git_run(["git", "-c", "color.ui=false", "commit", "-a", 
-                  "--dry-run", "-m", "dry run"], capture=True)
+    sp = git_run(["git", "-c", "color.ui=false", "ls-files", 
+                  "--others", "--exclude-standard"], capture=True)
     dryrun = sp_stdout(sp)
     dryrunerr = sp_stderr(sp)
     untracked = find_untracked(dryrun + dryrunerr)
@@ -803,10 +833,13 @@ def checkout(args):
         sp = git_run(["git", "clone", args[1], dir], capture=True)
     out = sp_stdout(sp)
     errout = sp_stderr(sp)
-    print(out)
     if len(errout) > 0:
         print("- Error output: " + errout)
-    if out.find("Could not resolve hostname") >= 0:
+    if errout.find("correct access rights") >= 0:
+        print("- You may need a URL syntax like"
+              " 'git@github.com-rbdannenberg:rbdannenberg/melim.git' in order"
+              " to authenticate to github.")
+    if errout.find("Could not resolve hostname") >= 0:
         print("- Check status of Internet access")
 
 
